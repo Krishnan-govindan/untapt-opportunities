@@ -42,7 +42,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Detail() {
-  const o = Route.useLoaderData();
+  const o = Route.useLoaderData() as Opportunity;
   const [open, setOpen] = useState(false);
 
   return (
