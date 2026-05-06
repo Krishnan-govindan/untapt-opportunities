@@ -29,8 +29,8 @@ loadEnv();
 
 const BATCH_SIZE = 30;
 const LOOP_SLEEP_MS = 60_000;
-const ACTOR_TIMEOUT_SECS = 180;
-const MAX_RETRIES = 3;
+const ACTOR_TIMEOUT_SECS = 300;
+const MAX_RETRIES = 2;
 const RETRY_DELAYS_MS = [5_000, 15_000, 30_000];
 
 const POLITICAL_KWS = [
@@ -229,11 +229,15 @@ async function scrapeReddit(apify: ApifyClient, subreddits: string[]): Promise<R
 }
 
 async function scrapeTwitter(apify: ApifyClient, queries: string[]): Promise<RawItem[]> {
+  // Add since: filter so we only get posts from the last 7 days
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const datedQueries = queries.map((q) => `${q} since:${since} -is:retweet lang:en`);
+
   const run = await apify.actor("apidojo/tweet-scraper").call(
     {
-      searchTerms: queries,
+      searchTerms: datedQueries,
       maxItems: 100,
-      queryType: "Latest",
+      queryType: "Top",
       lang: "en",
     },
     { waitSecs: ACTOR_TIMEOUT_SECS }
@@ -296,27 +300,35 @@ async function scrapeGoogle(apify: ApifyClient, queries: string[]): Promise<RawI
   );
 
   const { items } = await apify.dataset(run.defaultDatasetId).listItems();
-  log(`  [Google] ${items.length} results`);
+  log(`  [Google] ${items.length} pages`);
 
-  return (items as Record<string, unknown>[])
-    .filter((i) => i.title || i.snippet)
-    .map((i): RawItem => ({
-      platform: "google",
-      title: String(i.title ?? ""),
-      content: String(i.snippet ?? i.description ?? ""),
-      url: String(i.url ?? i.link ?? ""),
-      score: 0,
-    }));
+  // Each item is a search-result page; organicResults is the array of actual links
+  const results: RawItem[] = [];
+  for (const page of items as Record<string, unknown>[]) {
+    const organic = (page.organicResults ?? []) as Record<string, unknown>[];
+    for (const r of organic) {
+      if (!r.title && !r.description && !r.snippet) continue;
+      results.push({
+        platform: "google",
+        title: String(r.title ?? ""),
+        content: String(r.description ?? r.snippet ?? ""),
+        url: String(r.url ?? r.link ?? ""),
+        score: 0,
+      });
+    }
+  }
+  log(`  [Google] ${results.length} organic results`);
+  return results;
 }
 
 // ─── Parallel Scrape ──────────────────────────────────────────────────────────
 
 async function scrapeAll(apify: ApifyClient, profile: ScrapeProfile): Promise<RawItem[]> {
-  log(`[Scrape] Profile ${profile.id} — launching 4 actors in parallel`);
+  log(`[Scrape] Profile ${profile.id} — launching 4 actors in parallel (Reddit + X + HN + Google)`);
 
   const settled = await Promise.allSettled([
     retry(() => scrapeReddit(apify, profile.subreddits), `Reddit-${profile.id}`),
-    retry(() => scrapeTwitter(apify, profile.twitterQueries), `Twitter-${profile.id}`),
+    retry(() => scrapeTwitter(apify, profile.twitterQueries), `X-${profile.id}`),
     retry(() => scrapeHN(apify), `HN-${profile.id}`),
     retry(() => scrapeGoogle(apify, profile.googleQueries), `Google-${profile.id}`),
   ]);
@@ -449,8 +461,18 @@ async function upsertOpportunities(
     .select("id");
 
   if (error) {
-    log(`[Supabase] Upsert error: ${error.message}`);
-    return 0;
+    // Fall back to plain insert if upsert constraint is unavailable
+    const { data: ins, error: insErr } = await supabase
+      .from("opportunities")
+      .insert(rows)
+      .select("id");
+    if (insErr) {
+      log(`[Supabase] Insert error: ${insErr.message}`);
+      return 0;
+    }
+    const count = ins?.length ?? 0;
+    log(`[Supabase] Inserted ${count} new rows (insert fallback)`);
+    return count;
   }
 
   const count = data?.length ?? 0;
