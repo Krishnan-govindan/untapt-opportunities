@@ -1,10 +1,8 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Opportunity } from "@/lib/types";
 import { SourceBadge } from "@/components/SourceBadge";
 import { UrgencyMeter } from "@/components/UrgencyMeter";
-import { BuildPrototypeModal } from "@/components/BuildPrototypeModal";
 
 export const Route = createFileRoute("/opportunity/$id")({
   loader: async ({ params }) => {
@@ -42,7 +40,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Detail() {
   const o = Route.useLoaderData() as Opportunity;
-  const [open, setOpen] = useState(false);
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-12">
@@ -76,12 +73,6 @@ function Detail() {
               </p>
               <UrgencyMeter score={o.urgency_score} />
             </div>
-            <button
-              onClick={() => setOpen(true)}
-              className="ml-auto rounded-md bg-gradient-to-r from-primary to-primary-glow px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-95"
-            >
-              Build this prototype →
-            </button>
           </div>
         </header>
 
@@ -116,8 +107,6 @@ function Detail() {
           </Section>
         </div>
       </article>
-
-      <BuildPrototypeModal opportunity={o} open={open} onClose={() => setOpen(false)} />
     </main>
   );
 }
