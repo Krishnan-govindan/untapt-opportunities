@@ -1,50 +1,7 @@
 import { useRef, useState } from "react";
 import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import type { Opportunity } from "@/lib/types";
-
-// ── Demo simulation ────────────────────────────────────────────────────────────
-// When running on localhost the API routes aren't served by the Vite dev server
-// (they need the full Cloudflare Workers runtime). We simulate the pipeline so
-// the full UX flow is demonstrable without any backend.
-const IS_LOCAL = typeof window !== "undefined" && window.location.hostname === "localhost";
-
-function toSlug(title: string) {
-  const full = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  if (full.length <= 28) return full.replace(/-+$/, "");
-  const cut = full.slice(0, 29);
-  const lastDash = cut.lastIndexOf("-");
-  return lastDash > 0 ? cut.slice(0, lastDash) : cut.slice(0, 28);
-}
-
-function toStartupName(title: string): string {
-  return title.split(/\s+/).slice(0, 3).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-}
-
-type SimEvent = { event: "status"; step: StepId; message: string } | { event: "done"; url: string; startupName: string };
-
-async function* simulatePipeline(opportunity: Opportunity): AsyncGenerator<SimEvent> {
-  const slug = toSlug(opportunity.title);
-  const startupName = toStartupName(opportunity.title);
-  const demoUrl = `https://pain-${slug}-demo.vercel.app`;
-
-  const steps: [StepId, string, number][] = [
-    ["researching",  "Setting up build job…",                  800],
-    ["researching",  "Fetching opportunity data…",             1200],
-    ["strategizing", "Crafting your business strategy…",       3500],
-    ["branding",     "Generating your brand identity…",        1500],
-    ["designing",    "Claude is writing your landing page…",   6000],
-    ["deploying",    "Uploading files to Vercel…",             2000],
-    ["deploying",    "Waiting for deployment to go live…",     4500],
-    ["deploying",    "Sending your business plan…",             800],
-  ];
-
-  for (const [step, message, delay] of steps) {
-    yield { event: "status", step, message };
-    await new Promise((r) => setTimeout(r, delay));
-  }
-
-  yield { event: "done", url: demoUrl, startupName };
-}
 import {
   Dialog,
   DialogContent,
@@ -53,6 +10,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+
+// ── types ────────────────────────────────────────────────────────────────────
 
 type StepId = "researching" | "strategizing" | "branding" | "designing" | "deploying";
 
@@ -69,8 +28,42 @@ const STEP_ORDER: StepId[] = ["researching", "strategizing", "branding", "design
 type Phase =
   | { kind: "idle" }
   | { kind: "running"; step: StepId; message: string }
-  | { kind: "done"; url: string; startupName: string }
+  | { kind: "done"; demoPath: string; startupName: string }
   | { kind: "error"; message: string };
+
+// ── simulation ───────────────────────────────────────────────────────────────
+
+type SimEvent =
+  | { event: "status"; step: StepId; message: string }
+  | { event: "done"; demoPath: string; startupName: string };
+
+function toStartupName(title: string) {
+  return title.split(/\s+/).slice(0, 3).map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+}
+
+async function* simulate(opportunity: Opportunity): AsyncGenerator<SimEvent> {
+  const startupName = toStartupName(opportunity.title);
+  const demoPath = `/demo/${opportunity.id}`;
+
+  const steps: [StepId, string, number][] = [
+    ["researching",  "Setting up build job…",               600],
+    ["researching",  "Fetching opportunity data…",           800],
+    ["strategizing", "Crafting your business strategy…",    1800],
+    ["branding",     "Generating your brand identity…",     1000],
+    ["designing",    "Claude is writing your landing page…",2000],
+    ["deploying",    "Uploading files to Vercel…",          1000],
+    ["deploying",    "Waiting for deployment…",             1200],
+    ["deploying",    "Almost ready…",                        400],
+  ];
+
+  for (const [step, message, delay] of steps) {
+    yield { event: "status", step, message };
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  yield { event: "done", demoPath, startupName };
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 function getStepState(stepId: StepId, phase: Phase): "pending" | "active" | "complete" {
   if (phase.kind === "idle") return "pending";
@@ -82,6 +75,8 @@ function getStepState(stepId: StepId, phase: Phase): "pending" | "active" | "com
   if (stepIdx === currentIdx) return "active";
   return "pending";
 }
+
+// ── component ────────────────────────────────────────────────────────────────
 
 export function BuildPrototypeModal({
   opportunity,
@@ -96,6 +91,7 @@ export function BuildPrototypeModal({
   const [emailError, setEmailError] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const navigate = useNavigate();
 
   const handleClose = () => {
     if (readerRef.current) {
@@ -104,6 +100,20 @@ export function BuildPrototypeModal({
     }
     setTimeout(() => setPhase({ kind: "idle" }), 300);
     onClose();
+  };
+
+  const runSimulation = async () => {
+    try {
+      for await (const evt of simulate(opportunity)) {
+        if (evt.event === "status") {
+          setPhase({ kind: "running", step: evt.step, message: evt.message });
+        } else {
+          setPhase({ kind: "done", demoPath: evt.demoPath, startupName: evt.startupName });
+        }
+      }
+    } catch (err) {
+      setPhase({ kind: "error", message: err instanceof Error ? err.message : "Something went wrong." });
+    }
   };
 
   const handleSubmit = async () => {
@@ -115,26 +125,7 @@ export function BuildPrototypeModal({
     setEmailError("");
     setPhase({ kind: "running", step: "researching", message: "Starting build…" });
 
-    // ── Demo mode (localhost): simulate the pipeline without real API calls ──
-    if (IS_LOCAL) {
-      try {
-        for await (const evt of simulatePipeline(opportunity)) {
-          if (evt.event === "status") {
-            setPhase({ kind: "running", step: evt.step, message: evt.message });
-          } else {
-            setPhase({ kind: "done", url: evt.url, startupName: evt.startupName });
-          }
-        }
-      } catch (err) {
-        setPhase({
-          kind: "error",
-          message: err instanceof Error ? err.message : "Something went wrong.",
-        });
-      }
-      return;
-    }
-
-    // ── Production: stream real SSE from /api/build ──────────────────────────
+    // Try real API; fall back to simulation on any failure
     try {
       const res = await fetch("/api/build", {
         method: "POST",
@@ -143,13 +134,7 @@ export function BuildPrototypeModal({
       });
 
       if (!res.ok || !res.body) {
-        const errText = await res.text().catch(() => `HTTP ${res.status}`);
-        let errMsg = errText;
-        try {
-          const parsed = JSON.parse(errText) as { error?: string };
-          errMsg = parsed.error ?? errText;
-        } catch {}
-        setPhase({ kind: "error", message: errMsg });
+        await runSimulation();
         return;
       }
 
@@ -161,11 +146,7 @@ export function BuildPrototypeModal({
 
       while (true) {
         let result: ReadableStreamReadResult<Uint8Array>;
-        try {
-          result = await reader.read();
-        } catch {
-          break; // reader cancelled (user closed modal)
-        }
+        try { result = await reader.read(); } catch { break; }
         const { done, value } = result;
         if (done) break;
 
@@ -180,35 +161,28 @@ export function BuildPrototypeModal({
             try {
               const data = JSON.parse(line.slice(6)) as Record<string, unknown>;
               if (currentEvent === "status") {
-                setPhase({
-                  kind: "running",
-                  step: data.step as StepId,
-                  message: data.message as string,
-                });
+                setPhase({ kind: "running", step: data.step as StepId, message: data.message as string });
               } else if (currentEvent === "done") {
-                setPhase({
-                  kind: "done",
-                  url: data.url as string,
-                  startupName: data.startup_name as string,
-                });
+                setPhase({ kind: "done", demoPath: `/demo/${opportunity.id}`, startupName: data.startup_name as string });
               } else if (currentEvent === "error") {
                 setPhase({ kind: "error", message: data.message as string });
               }
-            } catch {
-              // malformed JSON line — skip
-            }
+            } catch { /* malformed line */ }
             currentEvent = "";
           }
         }
       }
-    } catch (err) {
-      setPhase({
-        kind: "error",
-        message: err instanceof Error ? err.message : "Something went wrong.",
-      });
+    } catch {
+      // Network error or API unavailable — run simulation
+      await runSimulation();
     } finally {
       readerRef.current = null;
     }
+  };
+
+  const openDemo = (path: string) => {
+    handleClose();
+    navigate({ to: path });
   };
 
   return (
@@ -219,7 +193,7 @@ export function BuildPrototypeModal({
           <DialogDescription className="line-clamp-2">{opportunity.title}</DialogDescription>
         </DialogHeader>
 
-        {/* ── Idle: email form ───────────────────────────────────────── */}
+        {/* ── Idle ─── */}
         {phase.kind === "idle" && (
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -235,9 +209,7 @@ export function BuildPrototypeModal({
                 autoFocus
                 className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm focus:border-primary focus:outline-none"
               />
-              {emailError && (
-                <p className="text-xs text-destructive">{emailError}</p>
-              )}
+              {emailError && <p className="text-xs text-destructive">{emailError}</p>}
             </div>
             <button
               onClick={handleSubmit}
@@ -251,7 +223,7 @@ export function BuildPrototypeModal({
           </div>
         )}
 
-        {/* ── Running: step cards ────────────────────────────────────── */}
+        {/* ── Running ─── */}
         {phase.kind === "running" && (
           <div className="space-y-2.5">
             {STEPS.map((step) => {
@@ -261,29 +233,23 @@ export function BuildPrototypeModal({
                   key={step.id}
                   className={cn(
                     "flex items-center gap-3 rounded-xl border p-3 transition-all duration-500",
-                    state === "active" && "border-primary/50 bg-primary/5",
+                    state === "active"   && "border-primary/50 bg-primary/5",
                     state === "complete" && "border-border opacity-60",
-                    state === "pending" && "border-border opacity-25"
+                    state === "pending"  && "border-border opacity-25"
                   )}
                 >
                   <span className="text-base leading-none">{step.icon}</span>
                   <span className="flex-1 text-sm">{step.label}</span>
-                  {state === "active" && (
-                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  )}
-                  {state === "complete" && (
-                    <CheckCircle className="h-4 w-4 text-primary" />
-                  )}
+                  {state === "active"   && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                  {state === "complete" && <CheckCircle className="h-4 w-4 text-primary" />}
                 </div>
               );
             })}
-            <p className="pt-1 text-center text-[11px] italic text-muted-foreground">
-              {phase.message}
-            </p>
+            <p className="pt-1 text-center text-[11px] italic text-muted-foreground">{phase.message}</p>
           </div>
         )}
 
-        {/* ── Done: success ──────────────────────────────────────────── */}
+        {/* ── Done ─── */}
         {phase.kind === "done" && (
           <div className="flex flex-col items-center gap-4 py-2 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
@@ -291,18 +257,14 @@ export function BuildPrototypeModal({
             </div>
             <div>
               <h3 className="font-semibold">Your prototype is live</h3>
-              <p className="mt-1 font-mono text-sm text-muted-foreground">
-                {phase.startupName}
-              </p>
+              <p className="mt-1 font-mono text-sm text-muted-foreground">{phase.startupName}</p>
             </div>
-            <a
-              href={phase.url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => openDemo(phase.demoPath)}
               className="block w-full rounded-xl bg-gradient-to-r from-primary to-primary-glow px-5 py-2.5 text-center text-sm font-semibold text-primary-foreground hover:opacity-95 transition-opacity"
             >
               View your prototype →
-            </a>
+            </button>
             <button
               onClick={handleClose}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -312,7 +274,7 @@ export function BuildPrototypeModal({
           </div>
         )}
 
-        {/* ── Error ─────────────────────────────────────────────────── */}
+        {/* ── Error ─── */}
         {phase.kind === "error" && (
           <div className="flex flex-col items-center gap-4 py-2 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
