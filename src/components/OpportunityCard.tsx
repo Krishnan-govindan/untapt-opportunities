@@ -10,10 +10,23 @@ const PLATFORM_TO_SOURCE: Record<string, string> = {
   google: "Product Hunt",
 };
 
+const FALLBACK_URLS: Record<string, (slug: string) => string> = {
+  Reddit: (slug) => `https://reddit.com/r/entrepreneur/search/?q=${slug}`,
+  X: (slug) => `https://x.com/search?q=${slug}`,
+  HN: (_slug) => `https://news.ycombinator.com/ask`,
+  "Product Hunt": (slug) => `https://producthunt.com/search?q=${slug}`,
+};
+
+function titleSlug(title: string): string {
+  return encodeURIComponent(title.toLowerCase().replace(/\s+/g, "+").slice(0, 40));
+}
+
 function sourceUrlFor(o: Opportunity, displayName: string): string | undefined {
-  if (!o.sources_detail) return undefined;
-  const platform = Object.entries(PLATFORM_TO_SOURCE).find(([, v]) => v === displayName)?.[0];
-  return o.sources_detail.find((s) => s.platform === platform)?.url;
+  if (o.sources_detail?.length) {
+    const platform = Object.entries(PLATFORM_TO_SOURCE).find(([, v]) => v === displayName)?.[0];
+    return o.sources_detail.find((s) => s.platform === platform)?.url;
+  }
+  return FALLBACK_URLS[displayName]?.(titleSlug(o.title));
 }
 
 function shortDomain(url: string): string {
@@ -27,7 +40,15 @@ function shortDomain(url: string): string {
 }
 
 export function OpportunityCard({ o }: { o: Opportunity }) {
-  const sourceLinks = o.sources_detail?.filter((s) => s.url) ?? [];
+  const realLinks = o.sources_detail?.filter((s) => s.url) ?? [];
+  // Fall back to one demo link per platform badge when no real sources exist
+  const sourceLinks = realLinks.length > 0
+    ? realLinks
+    : o.sources.slice(0, 2).map((s) => ({
+        url: FALLBACK_URLS[s]?.(titleSlug(o.title)) ?? "",
+        platform: s,
+        snippet: "",
+      })).filter((s) => s.url);
 
   return (
     <div
