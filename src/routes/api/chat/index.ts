@@ -73,7 +73,7 @@ export const APIRoute = createAPIFileRoute('/api/chat')({
       let fullText = ''
       try {
         const stream = anthropic.messages.stream({
-          model: 'claude-opus-4-7',
+          model: 'claude-sonnet-4-6',
           max_tokens: 1024,
           system: systemPrompt(JSON.stringify(opp, null, 2)),
           messages,

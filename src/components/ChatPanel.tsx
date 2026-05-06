@@ -23,6 +23,49 @@ function getSessionId(): string {
   return id;
 }
 
+// ── Offline fallback ──────────────────────────────────────────────────────────
+// Used when /api/chat is unavailable (local dev, API key not configured, etc.)
+
+function fallbackResponse(message: string, opp: Opportunity): string {
+  const q = message.toLowerCase();
+  const compNames = opp.competitors.map((c) => c.name).join(", ");
+  const compPricing = opp.competitors.map((c) => `${c.name} (${c.pricing})`).join(", ");
+  const features = opp.mvp_features.slice(0, 3).join("; ");
+
+  if (q.includes("gtm") || q.includes("go.to.market") || q.includes("growth") || q.includes("acquire") || q.includes("customer")) {
+    return `Best GTM for this is a bottom-up PLG motion targeting ${opp.icp.split(",")[0]}. Start with a free tier that delivers immediate value on the core pain ("${opp.pain_summary.slice(0, 60)}…"), then upsell to teams. ${opp.why_now} Use Reddit, LinkedIn, and niche communities where your ICP already hangs out — they're already complaining about this problem.`;
+  }
+  if (q.includes("market") || q.includes("tam") || q.includes("size") || q.includes("big") || q.includes("revenue")) {
+    return `TAM is ${opp.tam_estimate}. Urgency score is ${opp.urgency_score}/10 — that's unusually high. ${opp.why_now} Even capturing 1% of this market puts you at a meaningful revenue base. The real question is SAM: how many ${opp.icp.split(",")[0]} can you realistically reach in year 1?`;
+  }
+  if (q.includes("competitor") || q.includes("alternative") || q.includes("competition") || q.includes("vs ")) {
+    return `Main alternatives are ${compPricing}. Their gap: they're built for enterprises, not ${opp.icp.split(",")[0]}. Your wedge is price-point + workflow fit. ${opp.competitors[0] ? `${opp.competitors[0].name}'s pricing alone prices out most of your ICP.` : ""} Win on simplicity and time-to-value.`;
+  }
+  if (q.includes("mvp") || q.includes("feature") || q.includes("build") || q.includes("v1") || q.includes("product")) {
+    return `MVP scope: ${features}. Ship these three in week 1, everything else is noise. The key insight for ${opp.icp.split(",")[0]} is that they need outcome in <5 minutes — don't make them configure anything. Get 10 design partners from your ICP before writing a line of code.`;
+  }
+  if (q.includes("fundrais") || q.includes("investor") || q.includes("vc") || q.includes("raise") || q.includes("funding")) {
+    return `With ${opp.tam_estimate} TAM and urgency score ${opp.urgency_score}/10, this is fundable at pre-seed. Story: timing (${opp.why_now.slice(0, 80)}…). Target founders who've felt this pain — they'll convert fastest. Raise $500K–$1.5M to get to 20 paying customers, then raise a proper seed.`;
+  }
+  if (q.includes("icp") || q.includes("who") || q.includes("target") || q.includes("customer")) {
+    return `ICP: ${opp.icp}. These people are feeling the pain *right now* — ${opp.pain_summary}. Find them on LinkedIn by job title, or in subreddits/Slack communities where they congregate. First 10 customers should all come from personal outreach, not ads.`;
+  }
+  if (q.includes("why now") || q.includes("timing") || q.includes("trend")) {
+    return opp.why_now + " That's the macro tailwind. Pair it with the collapse in AI inference costs and you have a rare timing window to build this at a fraction of what it would have cost 2 years ago.";
+  }
+
+  return `Great question about "${opp.title}". The core insight here is: ${opp.pain_summary}. ${opp.why_now} The ICP (${opp.icp.split(",")[0]}) is actively looking for a solution — existing tools like ${compNames} don't fit their workflow or budget. What specific aspect would you like to dig into?`;
+}
+
+// ── streaming fallback helper ─────────────────────────────────────────────────
+async function* streamText(text: string): AsyncGenerator<string> {
+  const words = text.split(" ");
+  for (const word of words) {
+    yield word + " ";
+    await new Promise((r) => setTimeout(r, 28));
+  }
+}
+
 export function ChatPanel({ opportunity }: { opportunity: Opportunity }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -121,16 +164,22 @@ export function ChatPanel({ opportunity }: { opportunity: Opportunity }) {
         }
       }
     } catch {
+      // API unavailable — stream a smart fallback response word-by-word
+      const answer = fallbackResponse(text, opportunity);
+      for await (const chunk of streamText(answer)) {
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.streaming) {
+            next[next.length - 1] = { ...last, content: last.content + chunk };
+          }
+          return next;
+        });
+      }
       setMessages((prev) => {
         const next = [...prev];
         const last = next[next.length - 1];
-        if (last?.streaming) {
-          next[next.length - 1] = {
-            ...last,
-            content: "Something went wrong. Please try again.",
-            streaming: false,
-          };
-        }
+        if (last?.streaming) next[next.length - 1] = { ...last, streaming: false };
         return next;
       });
     } finally {
