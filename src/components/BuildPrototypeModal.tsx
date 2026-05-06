@@ -87,8 +87,6 @@ export function BuildPrototypeModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const [email, setEmail] = useState("");
-  const [emailError, setEmailError] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const navigate = useNavigate();
@@ -117,12 +115,6 @@ export function BuildPrototypeModal({
   };
 
   const handleSubmit = async () => {
-    const trimmed = email.trim();
-    if (!trimmed || !trimmed.includes("@")) {
-      setEmailError("Please enter a valid email address.");
-      return;
-    }
-    setEmailError("");
     setPhase({ kind: "running", step: "researching", message: "Starting build…" });
 
     // Try real API; fall back to simulation on any failure
@@ -130,7 +122,7 @@ export function BuildPrototypeModal({
       const res = await fetch("/api/build", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ opportunity_id: opportunity.id, email: trimmed }),
+        body: JSON.stringify({ opportunity_id: opportunity.id, email: "" }),
       });
 
       if (!res.ok || !res.body) {
@@ -196,30 +188,16 @@ export function BuildPrototypeModal({
         {/* ── Idle ─── */}
         {phase.kind === "idle" && (
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                Where should we send the link?
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => { setEmail(e.target.value); setEmailError(""); }}
-                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                placeholder="you@example.com"
-                autoFocus
-                className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              />
-              {emailError && <p className="text-xs text-destructive">{emailError}</p>}
-            </div>
+            <p className="text-sm text-muted-foreground">
+              We'll generate a logo, landing page, and business plan — then deploy it live.
+            </p>
             <button
               onClick={handleSubmit}
+              autoFocus
               className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-glow px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-95 transition-opacity"
             >
               Build this prototype →
             </button>
-            <p className="text-center text-[11px] text-muted-foreground">
-              We'll generate a logo, landing page, and business plan — then deploy it live.
-            </p>
           </div>
         )}
 
