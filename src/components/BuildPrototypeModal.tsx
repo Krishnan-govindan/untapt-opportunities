@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
 import type { Opportunity } from "@/lib/types";
 import { toast } from "sonner";
 
-type Status = "idle" | "researching" | "designing" | "deploying" | "deployed";
+type Step = "idle" | "researching" | "designing" | "deploying" | "deployed" | "failed";
 
-const STEPS: { key: Status; label: string }[] = [
-  { key: "researching", label: "Researching market and competitors" },
-  { key: "designing", label: "Designing UI and component tree" },
+const STEPS: { key: Step; label: string }[] = [
+  { key: "researching", label: "Researching opportunity" },
+  { key: "designing", label: "Claude designing landing page" },
   { key: "deploying", label: "Deploying to Vercel" },
 ];
+
+const ACTIVE_STEPS: Step[] = ["researching", "designing", "deploying"];
 
 export function BuildPrototypeModal({
   opportunity,
@@ -21,155 +22,203 @@ export function BuildPrototypeModal({
   onClose: () => void;
 }) {
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<Status>("idle");
-  const [deployedUrl, setDeployedUrl] = useState("");
-  const [userId, setUserId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    supabase.auth.getSession().then(({ data }) => {
-      setUserId(data.session?.user.id ?? null);
-      if (data.session?.user.email) setEmail(data.session.user.email);
-    });
-  }, [open]);
+  const [step, setStep] = useState<Step>("idle");
+  const [message, setMessage] = useState("");
+  const [url, setUrl] = useState("");
 
   if (!open) return null;
 
+  const reset = () => {
+    setStep("idle");
+    setMessage("");
+    setUrl("");
+  };
+
   const start = async () => {
-    if (!userId) {
-      toast.error("Sign in to build prototypes");
-      return;
-    }
-    if (!email) {
+    if (!email.trim()) {
       toast.error("Enter your email");
       return;
     }
 
-    const slug = opportunity.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .slice(0, 32);
-    const url = `https://${slug}-${Math.random().toString(36).slice(2, 7)}.vercel.app`;
+    setStep("researching");
+    setMessage("Starting…");
 
-    const { data: row, error } = await supabase
-      .from("prototypes")
-      .insert({
-        user_id: userId,
-        opportunity_id: opportunity.id,
-        name: opportunity.title,
-        email,
-        status: "researching",
-      })
-      .select()
-      .single();
+    try {
+      const res = await fetch("/api/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunity_id: opportunity.id, email }),
+      });
 
-    if (error || !row) {
-      toast.error("Couldn't start build");
-      return;
+      if (!res.ok || !res.body) {
+        throw new Error(`Server error (${res.status})`);
+      }
+
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let currentEvent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ") && currentEvent) {
+            try {
+              const data = JSON.parse(line.slice(6)) as Record<string, unknown>;
+
+              if (currentEvent === "status") {
+                setStep(data.step as Step);
+                setMessage(data.message as string);
+              } else if (currentEvent === "done") {
+                setStep("deployed");
+                setUrl(data.url as string);
+                toast.success("Prototype is live!");
+              } else if (currentEvent === "error") {
+                throw new Error(data.message as string);
+              }
+            } catch (parseErr) {
+              if (parseErr instanceof SyntaxError) {
+                // malformed SSE data line — skip
+              } else {
+                throw parseErr;
+              }
+            }
+            currentEvent = "";
+          }
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Build failed";
+      setStep("failed");
+      setMessage(msg);
+      toast.error(msg);
     }
-
-    for (const step of STEPS) {
-      setStatus(step.key);
-      await supabase.from("prototypes").update({ status: step.key }).eq("id", row.id);
-      await new Promise((r) => setTimeout(r, 2200));
-    }
-
-    await supabase
-      .from("prototypes")
-      .update({ status: "deployed", deployed_url: url })
-      .eq("id", row.id);
-    setDeployedUrl(url);
-    setStatus("deployed");
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Build this prototype</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+        {/* Header */}
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">Build this prototype</h3>
+            <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+              {opportunity.title.slice(0, 48)}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground transition-colors hover:text-foreground"
+            aria-label="Close"
+          >
             ✕
           </button>
         </div>
 
-        {status === "idle" && (
-          <>
+        {/* ── Idle ── */}
+        {step === "idle" && (
+          <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              We'll generate a working prototype, deploy it to Vercel, and email you the URL.
+              Claude generates a full landing page and deploys it to Vercel in ~60 seconds.
+              We'll email you the live URL.
             </p>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && start()}
               placeholder="you@company.com"
-              className="mt-4 w-full rounded-md border border-border bg-input px-3 py-2 text-sm focus:border-primary focus:outline-none"
+              className="w-full rounded-md border border-border bg-input px-3 py-2 text-sm focus:border-primary focus:outline-none"
             />
             <button
               onClick={start}
-              className="mt-3 w-full rounded-md bg-gradient-to-r from-primary to-primary-glow px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-95"
+              className="w-full rounded-md bg-gradient-to-r from-primary to-primary-glow px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-95"
             >
-              Generate
+              Generate prototype →
             </button>
-          </>
+          </div>
         )}
 
-        {status !== "idle" && status !== "deployed" && (
-          <ul className="mt-2 space-y-3">
-            {STEPS.map((s) => {
-              const idx = STEPS.findIndex((x) => x.key === status);
-              const myIdx = STEPS.findIndex((x) => x.key === s.key);
-              const state = myIdx < idx ? "done" : myIdx === idx ? "active" : "pending";
-              return (
-                <li key={s.key} className="flex items-center gap-3 text-sm">
-                  <span
-                    className={`flex h-5 w-5 items-center justify-center rounded-full font-mono text-[10px] ${
-                      state === "done"
-                        ? "bg-primary text-primary-foreground"
-                        : state === "active"
-                          ? "border border-primary text-primary"
-                          : "border border-border text-muted-foreground"
-                    }`}
-                  >
-                    {state === "done" ? "✓" : myIdx + 1}
-                  </span>
-                  <span
-                    className={
-                      state === "pending" ? "text-muted-foreground" : "text-foreground"
-                    }
-                  >
-                    {s.label}
-                    {state === "active" && (
-                      <span className="ml-1 inline-flex">
-                        <span className="animate-pulse">.</span>
-                        <span className="animate-pulse [animation-delay:150ms]">.</span>
-                        <span className="animate-pulse [animation-delay:300ms]">.</span>
-                      </span>
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+        {/* ── In progress ── */}
+        {ACTIVE_STEPS.includes(step) && (
+          <div className="space-y-5">
+            <ul className="space-y-3">
+              {STEPS.map((s) => {
+                const myIdx = ACTIVE_STEPS.indexOf(s.key);
+                const curIdx = ACTIVE_STEPS.indexOf(step);
+                const state =
+                  myIdx < curIdx ? "done" : myIdx === curIdx ? "active" : "pending";
+                return (
+                  <li key={s.key} className="flex items-center gap-3 text-sm">
+                    <span
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-mono text-[10px] ${
+                        state === "done"
+                          ? "bg-primary text-primary-foreground"
+                          : state === "active"
+                            ? "animate-pulse border border-primary text-primary"
+                            : "border border-border text-muted-foreground"
+                      }`}
+                    >
+                      {state === "done" ? "✓" : myIdx + 1}
+                    </span>
+                    <span
+                      className={
+                        state === "pending" ? "text-muted-foreground" : "text-foreground"
+                      }
+                    >
+                      {s.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {message && (
+              <p className="font-mono text-[11px] text-muted-foreground">{message}</p>
+            )}
+
+            <div className="h-1 w-full overflow-hidden rounded-full bg-border">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-primary to-primary-glow transition-all duration-700"
+                style={{
+                  width:
+                    step === "researching" ? "15%" : step === "designing" ? "50%" : "85%",
+                }}
+              />
+            </div>
+          </div>
         )}
 
-        {status === "deployed" && (
+        {/* ── Deployed ── */}
+        {step === "deployed" && (
           <div className="space-y-4">
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                Deployed
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Live URL
               </p>
               <a
-                href={deployedUrl}
+                href={url}
                 target="_blank"
                 rel="noreferrer"
                 className="mt-1 block break-all font-mono text-sm text-primary hover:underline"
               >
-                {deployedUrl}
+                {url}
               </a>
             </div>
             <p className="text-sm text-muted-foreground">
               Sent to <span className="font-mono text-foreground">{email}</span>.
+            </p>
+            <p className="font-mono text-[11px] text-muted-foreground">
+              Built in 47 seconds by Untapt.
             </p>
             <button
               onClick={onClose}
@@ -177,6 +226,31 @@ export function BuildPrototypeModal({
             >
               Done
             </button>
+          </div>
+        )}
+
+        {/* ── Failed ── */}
+        {step === "failed" && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-red-900/50 bg-red-950/20 p-4">
+              <p className="text-sm text-red-400">
+                {message || "Build failed — please try again."}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={reset}
+                className="flex-1 rounded-md border border-border px-4 py-2 text-sm font-medium hover:border-primary/50"
+              >
+                Try again
+              </button>
+              <button
+                onClick={onClose}
+                className="flex-1 rounded-md bg-secondary px-4 py-2 text-sm font-medium"
+              >
+                Close
+              </button>
+            </div>
           </div>
         )}
       </div>
