@@ -12,15 +12,15 @@ export default defineConfig({
   tanstackStart: {
     server: { entry: "server" },
   },
-  // Lovable blocks VITE_ prefixed secrets, so APP_VITE_* vars are used instead.
-  // Inject them explicitly as import.meta.env.* so client-side code can read them.
+  // Lovable's managed Supabase project is empty; use our own project where real data lives.
+  // The anon key is public by design — safe to commit.
   vite: {
     define: {
       "import.meta.env.APP_VITE_APP_SUPABASE_URL": JSON.stringify(
-        process.env.APP_VITE_APP_SUPABASE_URL ?? "",
+        process.env.APP_VITE_APP_SUPABASE_URL ?? "https://vzbkzfcrixalhqhmjinj.supabase.co",
       ),
       "import.meta.env.APP_VITE_APP_SUPABASE_ANON_KEY": JSON.stringify(
-        process.env.APP_VITE_APP_SUPABASE_ANON_KEY ?? "",
+        process.env.APP_VITE_APP_SUPABASE_ANON_KEY ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6Ymt6ZmNyaXhhbGhxaG1qaW5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MTMzMjcsImV4cCI6MjA5MDk4OTMyN30.0olVFng8mo_jBZJgoI2iP44pJlywzFQPF1iHcfrMPjQ",
       ),
     },
   },
