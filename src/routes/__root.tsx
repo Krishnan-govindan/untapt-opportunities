@@ -68,11 +68,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content:
           "Untapt surfaces unmonetized startup opportunities scraped from Reddit, X, Hacker News, and Product Hunt complaints.",
       },
-      { property: "og:title", content: "Untapt" },
+      { property: "og:title", content: "Untapt — Unmonetized startup opportunities" },
       {
         property: "og:description",
         content: "Premium feed of unmonetized startup opportunities.",
       },
+      { name: "twitter:title", content: "Untapt — Unmonetized startup opportunities" },
+      { name: "description", content: "Discover unmonetized startup opportunities scraped from Reddit, X, Hacker News, and Product Hunt." },
+      { property: "og:description", content: "Discover unmonetized startup opportunities scraped from Reddit, X, Hacker News, and Product Hunt." },
+      { name: "twitter:description", content: "Discover unmonetized startup opportunities scraped from Reddit, X, Hacker News, and Product Hunt." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/6548ff48-e114-4efb-ac05-1d0d0b0fd7c4/id-preview-eba73940--e6691da0-58a1-4fef-a505-01e86693609e.lovable.app-1778101020841.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/6548ff48-e114-4efb-ac05-1d0d0b0fd7c4/id-preview-eba73940--e6691da0-58a1-4fef-a505-01e86693609e.lovable.app-1778101020841.png" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { property: "og:type", content: "website" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
