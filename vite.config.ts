@@ -12,4 +12,16 @@ export default defineConfig({
   tanstackStart: {
     server: { entry: "server" },
   },
+  // Lovable blocks VITE_ prefixed secrets, so APP_VITE_* vars are used instead.
+  // Inject them explicitly as import.meta.env.* so client-side code can read them.
+  vite: {
+    define: {
+      "import.meta.env.APP_VITE_APP_SUPABASE_URL": JSON.stringify(
+        process.env.APP_VITE_APP_SUPABASE_URL ?? "",
+      ),
+      "import.meta.env.APP_VITE_APP_SUPABASE_ANON_KEY": JSON.stringify(
+        process.env.APP_VITE_APP_SUPABASE_ANON_KEY ?? "",
+      ),
+    },
+  },
 });
