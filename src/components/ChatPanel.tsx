@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Opportunity } from "@/lib/types";
-import { toast } from "sonner";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
