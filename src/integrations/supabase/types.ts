@@ -14,41 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      chats: {
-        Row: {
-          content: string
-          created_at: string
-          id: string
-          opportunity_id: string
-          role: string
-          user_id: string
-        }
-        Insert: {
-          content: string
-          created_at?: string
-          id?: string
-          opportunity_id: string
-          role: string
-          user_id: string
-        }
-        Update: {
-          content?: string
-          created_at?: string
-          id?: string
-          opportunity_id?: string
-          role?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "chats_opportunity_id_fkey"
-            columns: ["opportunity_id"]
-            isOneToOne: false
-            referencedRelation: "opportunities"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       opportunities: {
         Row: {
           competitors: Json
@@ -96,50 +61,6 @@ export type Database = {
           why_now?: string
         }
         Relationships: []
-      }
-      prototypes: {
-        Row: {
-          created_at: string
-          deployed_url: string | null
-          email: string
-          id: string
-          name: string
-          opportunity_id: string
-          status: string
-          thumbnail_url: string | null
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          deployed_url?: string | null
-          email: string
-          id?: string
-          name: string
-          opportunity_id: string
-          status?: string
-          thumbnail_url?: string | null
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          deployed_url?: string | null
-          email?: string
-          id?: string
-          name?: string
-          opportunity_id?: string
-          status?: string
-          thumbnail_url?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "prototypes_opportunity_id_fkey"
-            columns: ["opportunity_id"]
-            isOneToOne: false
-            referencedRelation: "opportunities"
-            referencedColumns: ["id"]
-          },
-        ]
       }
     }
     Views: {
