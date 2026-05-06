@@ -1,17 +1,7 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import type { Session } from "@supabase/supabase-js";
 
 export function Header() {
-  const [session, setSession] = useState<Session | null>(null);
   const location = useLocation();
-
-  useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    return () => sub.subscription.unsubscribe();
-  }, []);
 
   const linkCls = (active: boolean) =>
     `text-sm transition-colors ${
@@ -31,24 +21,6 @@ export function Header() {
           <Link to="/" className={linkCls(location.pathname === "/")}>
             Feed
           </Link>
-          <Link to="/built" className={linkCls(location.pathname === "/built")}>
-            Built
-          </Link>
-          {session ? (
-            <button
-              onClick={() => supabase.auth.signOut()}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Sign out
-            </button>
-          ) : (
-            <Link
-              to="/auth"
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
-            >
-              Sign in
-            </Link>
-          )}
         </nav>
       </div>
     </header>
