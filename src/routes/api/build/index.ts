@@ -55,6 +55,146 @@ function extractCode(raw: string): string {
   return raw.trim()
 }
 
+// ─── Business Strategy ────────────────────────────────────────────────────────
+
+interface BusinessContext {
+  mission: string
+  vision: string
+  tagline: string
+  value_prop: string
+  gtm_strategy: string[]
+  icp_refined: string
+}
+
+function extractJSON(raw: string): BusinessContext {
+  const cleaned = raw.trim()
+  try {
+    return JSON.parse(cleaned) as BusinessContext
+  } catch {}
+  const fence = cleaned.match(/```(?:json)?\n?([\s\S]+?)\n?```/)
+  if (fence) {
+    try {
+      return JSON.parse(fence[1].trim()) as BusinessContext
+    } catch {}
+  }
+  const objMatch = cleaned.match(/\{[\s\S]+\}/)
+  if (objMatch) {
+    return JSON.parse(objMatch[0]) as BusinessContext
+  }
+  throw new Error('No valid JSON found in strategy response')
+}
+
+function fallbackStrategy(opp: Record<string, unknown>, startupName: string): BusinessContext {
+  const mvp = (opp.mvp_features as string[] | undefined) ?? []
+  return {
+    mission: `We help ${String(opp.icp ?? 'professionals')} eliminate ${String(opp.pain_summary ?? 'their core pain point')}`,
+    vision: `A world where ${String(opp.title ?? 'this problem')} is no longer a barrier to progress`,
+    tagline: startupName,
+    value_prop: String(opp.pain_description ?? opp.pain_summary ?? ''),
+    gtm_strategy: mvp.slice(0, 4).map((f, i) => `${i + 1}. Launch with ${f}`) as string[],
+    icp_refined: String(opp.icp ?? ''),
+  }
+}
+
+async function generateBusinessStrategy(
+  opp: Record<string, unknown>,
+  startupName: string
+): Promise<BusinessContext> {
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+  const payload = {
+    title: opp.title,
+    pain_summary: opp.pain_summary,
+    icp: opp.icp,
+    why_now: opp.why_now,
+    tam_estimate: opp.tam_estimate,
+    competitors: opp.competitors,
+    mvp_features: opp.mvp_features,
+  }
+
+  const tryGenerate = async (strict: boolean): Promise<BusinessContext> => {
+    const strictNote = strict
+      ? 'CRITICAL: Respond ONLY with the JSON object. No text before or after it.\n\n'
+      : ''
+    const msg = await anthropic.messages.create({
+      model: 'claude-opus-4-7',
+      max_tokens: 1024,
+      system: `${strictNote}You are a startup business strategist. Respond with ONLY a valid JSON object matching this exact shape — no markdown, no backticks, no explanation:
+{
+  "mission": "We [action] [who] [outcome] — one sentence, present tense",
+  "vision": "A world where [future state] — one sentence",
+  "tagline": "5-8 punchy words, no buzzwords like platform or solution",
+  "value_prop": "2 sentences max. Lead with customer outcome, not features.",
+  "gtm_strategy": ["step 1", "step 2", "step 3", "step 4"],
+  "icp_refined": "2-3 sentences. Specific job titles, company sizes, pain triggers."
+}`,
+      messages: [
+        {
+          role: 'user',
+          content: `Generate startup business context for "${startupName}":\n\n${JSON.stringify(payload, null, 2)}`,
+        },
+      ],
+    })
+
+    const raw = msg.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { type: 'text'; text: string }).text)
+      .join('')
+
+    return extractJSON(raw)
+  }
+
+  try {
+    return await tryGenerate(false)
+  } catch {
+    try {
+      return await tryGenerate(true)
+    } catch {
+      return fallbackStrategy(opp, startupName)
+    }
+  }
+}
+
+// ─── Logo Generation ──────────────────────────────────────────────────────────
+
+const LOGO_PALETTES = [
+  ['#7c3aed', '#a855f7'],
+  ['#6d28d9', '#8b5cf6'],
+  ['#4f46e5', '#7c3aed'],
+  ['#9333ea', '#c084fc'],
+  ['#7e22ce', '#a855f7'],
+  ['#5b21b6', '#8b5cf6'],
+]
+
+function generateLogoSvg(startupName: string): string {
+  const words = startupName.split(/\s+/).filter(Boolean)
+  const initials =
+    words.length >= 2
+      ? words[0][0].toUpperCase() + words[1][0].toUpperCase()
+      : startupName.slice(0, 2).toUpperCase()
+
+  const paletteIdx = (startupName.charCodeAt(0) ?? 0) % LOGO_PALETTES.length
+  const [colorStart, colorEnd] = LOGO_PALETTES[paletteIdx]
+
+  return `<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:${colorStart}"/>
+      <stop offset="100%" style="stop-color:${colorEnd}"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="24" fill="url(#g)"/>
+  <text x="60" y="60" dominant-baseline="central" text-anchor="middle"
+        font-family="system-ui,ui-sans-serif,sans-serif" font-weight="700"
+        font-size="${initials.length === 1 ? 56 : 46}" fill="white" letter-spacing="-1">${initials}</text>
+</svg>`
+}
+
+function svgToBase64DataUrl(svg: string): string {
+  const b64 = btoa(unescape(encodeURIComponent(svg)))
+  return `data:image/svg+xml;base64,${b64}`
+}
+
 // ─── Claude Generation ────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are generating a production Next.js 15 App Router landing page component.
@@ -262,13 +402,131 @@ async function pollUntilReady(deploymentId: string): Promise<string> {
 
 // ─── Email ────────────────────────────────────────────────────────────────────
 
+function logoHtml(initials: string, colorStart: string, colorEnd: string): string {
+  return `<div style="width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,${colorStart},${colorEnd});display:inline-block;line-height:56px;text-align:center;color:white;font-weight:700;font-size:${initials.length === 1 ? 28 : 22}px;font-family:system-ui,sans-serif;letter-spacing:-1px;vertical-align:middle;">${initials}</div>`
+}
+
 async function sendEmail(
   to: string,
   url: string,
   startupName: string,
-  opp: Record<string, unknown>
+  opp: Record<string, unknown>,
+  context: BusinessContext
 ): Promise<void> {
   if (!process.env.RESEND_API_KEY) return
+
+  const words = startupName.split(/\s+/).filter(Boolean)
+  const initials =
+    words.length >= 2
+      ? words[0][0].toUpperCase() + words[1][0].toUpperCase()
+      : startupName.slice(0, 2).toUpperCase()
+
+  const paletteIdx = (startupName.charCodeAt(0) ?? 0) % LOGO_PALETTES.length
+  const [colorStart, colorEnd] = LOGO_PALETTES[paletteIdx]
+
+  const competitors = (opp.competitors as { name: string; pricing: string }[] | undefined) ?? []
+  const mvpFeatures = (opp.mvp_features as string[] | undefined) ?? []
+  const gtm = context.gtm_strategy ?? []
+
+  const competitorRows = competitors
+    .map(
+      (c) =>
+        `<tr>
+          <td style="padding:6px 8px;color:#e2e8f0;font-size:13px;">${c.name}</td>
+          <td style="padding:6px 8px;color:#6b7280;font-size:12px;font-family:monospace;text-align:right;">${c.pricing}</td>
+        </tr>`
+    )
+    .join('')
+
+  const featureItems = mvpFeatures
+    .map((f) => `<p style="margin:0 0 6px;color:#9ca3af;font-size:13px;">▸ ${f}</p>`)
+    .join('')
+
+  const gtmItems = gtm
+    .map((s, i) => `<p style="margin:0 0 8px;color:#9ca3af;font-size:13px;">${i + 1}. ${s}</p>`)
+    .join('')
+
+  const divider = `<hr style="border:none;border-top:1px solid #1f2937;margin:20px 0;">`
+  const label = (text: string) =>
+    `<p style="margin:0 0 6px;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:.1em;">${text}</p>`
+
+  const html = `
+    <div style="font-family:ui-sans-serif,system-ui,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e2e8f0;padding:32px;border-radius:12px;">
+
+      <!-- Header: logo + name -->
+      <div style="margin-bottom:24px;">
+        ${logoHtml(initials, colorStart, colorEnd)}
+        <span style="display:inline-block;vertical-align:middle;margin-left:12px;font-size:20px;font-weight:700;color:#f1f5f9;">${startupName}</span>
+      </div>
+
+      <!-- Heading -->
+      <h1 style="color:#a855f7;font-size:22px;margin:0 0 4px;">Your startup is live.</h1>
+      <p style="color:#94a3b8;margin:0 0 8px;font-size:13px;font-style:italic;">${context.tagline}</p>
+
+      <!-- CTA button -->
+      <a href="${url}" style="display:inline-block;background:linear-gradient(to right,#7c3aed,#a855f7);color:white;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;margin:16px 0 24px;">View your prototype →</a>
+
+      ${divider}
+
+      <!-- Mission & Vision -->
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:4px;">
+        <tr>
+          <td width="50%" style="padding-right:16px;vertical-align:top;">
+            ${label('Mission')}
+            <p style="margin:0;color:#e2e8f0;font-size:13px;line-height:1.5;">${context.mission}</p>
+          </td>
+          <td width="50%" style="vertical-align:top;">
+            ${label('Vision')}
+            <p style="margin:0;color:#e2e8f0;font-size:13px;line-height:1.5;">${context.vision}</p>
+          </td>
+        </tr>
+      </table>
+
+      ${divider}
+
+      <!-- ICP -->
+      ${label('Your Customer')}
+      <p style="margin:0;color:#9ca3af;font-size:13px;line-height:1.6;">${context.icp_refined}</p>
+
+      ${divider}
+
+      <!-- GTM -->
+      ${label('Go-To-Market Strategy')}
+      ${gtmItems}
+
+      ${competitors.length > 0 ? `
+      ${divider}
+
+      <!-- Competitors -->
+      ${label('Competitive Landscape')}
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+        <tr style="background:#111827;">
+          <th style="padding:6px 8px;color:#6b7280;font-size:11px;text-align:left;font-weight:500;">Competitor</th>
+          <th style="padding:6px 8px;color:#6b7280;font-size:11px;text-align:right;font-weight:500;">Pricing</th>
+        </tr>
+        ${competitorRows}
+      </table>` : ''}
+
+      ${mvpFeatures.length > 0 ? `
+      ${divider}
+
+      <!-- MVP Features -->
+      ${label('MVP Features')}
+      ${featureItems}` : ''}
+
+      ${divider}
+
+      <!-- Market stats -->
+      <p style="margin:0;color:#6b7280;font-size:12px;">
+        TAM: <span style="color:#94a3b8;">${String(opp.tam_estimate ?? '?')}</span>
+        &nbsp;·&nbsp;
+        Urgency: <span style="color:#94a3b8;">${opp.urgency_score}/10</span>
+      </p>
+
+      ${divider}
+
+      <p style="margin:0;color:#4b5563;font-size:11px;">Untapt — surfaces unmonetized startup opportunities</p>
+    </div>`
 
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -279,20 +537,8 @@ async function sendEmail(
     body: JSON.stringify({
       from: 'Untapt <onboarding@resend.dev>',
       to: [to],
-      subject: `Your prototype is live: ${startupName}`,
-      html: `
-        <div style="font-family:monospace;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e2e8f0;padding:32px;border-radius:12px;">
-          <h1 style="color:#a855f7;font-size:22px;margin:0 0 6px;">Your prototype is live.</h1>
-          <p style="color:#94a3b8;margin:0 0 24px;font-size:13px;">Built in 47 seconds by Pain Point Arbitrage.</p>
-          <a href="${url}" style="display:inline-block;background:linear-gradient(to right,#7c3aed,#a855f7);color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">View your prototype →</a>
-          <div style="margin-top:28px;padding:16px;background:#111827;border-radius:8px;border:1px solid #1f2937;">
-            <p style="margin:0 0 6px;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:.1em;">Opportunity</p>
-            <p style="margin:0 0 4px;color:#e2e8f0;font-weight:600;">${startupName}</p>
-            <p style="margin:0 0 8px;color:#9ca3af;font-size:13px;">${String(opp.pain_summary ?? '')}</p>
-            <p style="margin:0;color:#6b7280;font-size:12px;">TAM: ${String(opp.tam_estimate ?? '?')} · Urgency: ${opp.urgency_score}/10</p>
-          </div>
-          <p style="margin-top:20px;color:#4b5563;font-size:11px;">Untapt — surfaces unmonetized startup opportunities</p>
-        </div>`,
+      subject: `Your startup is live: ${startupName}`,
+      html,
     }),
   }).catch(() => {}) // email failure never kills the build
 }
@@ -354,6 +600,29 @@ async function runPipeline(
       .update({ name: startupName })
       .eq('id', prototypeId)
 
+    // ── 2.5. Generate business strategy ─────────────────────────────────────
+    send('status', { step: 'strategizing', message: 'Crafting your business strategy…' })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    void (supabaseAdmin as any).from('prototypes').update({ status: 'strategizing' }).eq('id', prototypeId).then(() => {}, () => {})
+
+    const context = await generateBusinessStrategy(opp as Record<string, unknown>, startupName)
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    void (supabaseAdmin as any).from('prototypes').update({ business_context: context }).eq('id', prototypeId).then(() => {}, () => {})
+
+    // ── 2.6. Generate logo ───────────────────────────────────────────────────
+    send('status', { step: 'branding', message: 'Generating your brand identity…' })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    void (supabaseAdmin as any).from('prototypes').update({ status: 'branding' }).eq('id', prototypeId).then(() => {}, () => {})
+
+    const logoSvg = generateLogoSvg(startupName)
+    const logoDataUrl = svgToBase64DataUrl(logoSvg)
+
+    await supabaseAdmin
+      .from('prototypes')
+      .update({ thumbnail_url: logoDataUrl })
+      .eq('id', prototypeId)
+
     // ── 3. Generate with Claude ──────────────────────────────────────────────
     send('status', { step: 'designing', message: 'Claude is writing your landing page…' })
     await supabaseAdmin
@@ -400,10 +669,10 @@ async function runPipeline(
     const liveUrl = await pollUntilReady(deploymentId)
 
     // ── 6. Email + finalize ──────────────────────────────────────────────────
-    send('status', { step: 'deploying', message: 'Sending you the link…' })
+    send('status', { step: 'deploying', message: 'Sending your business plan…' })
 
     await Promise.all([
-      sendEmail(email, liveUrl, startupName, opp as Record<string, unknown>),
+      sendEmail(email, liveUrl, startupName, opp as Record<string, unknown>, context),
       supabaseAdmin
         .from('prototypes')
         .update({ status: 'deployed', deployed_url: liveUrl })
