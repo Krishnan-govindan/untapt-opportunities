@@ -7,6 +7,13 @@ import { UrgencyMeter } from "@/components/UrgencyMeter";
 import { BuildPrototypeModal } from "@/components/BuildPrototypeModal";
 import { ChatPanel } from "@/components/ChatPanel";
 
+const PLATFORM_LABEL: Record<string, string> = {
+  reddit: "Reddit",
+  hackernews: "HN",
+  twitter: "X",
+  google: "Product Hunt",
+};
+
 export const Route = createFileRoute("/opportunity/$id")({
   loader: async ({ params }) => {
     const { data, error } = await supabase
@@ -116,6 +123,32 @@ function Detail() {
                 ))}
               </ul>
             </Section>
+            {o.sources_detail && o.sources_detail.length > 0 && (
+              <Section title="Sources">
+                <ul className="space-y-4">
+                  {o.sources_detail.map((s, i) => (
+                    <li key={i} className="flex flex-col gap-1.5 rounded-lg border border-border bg-secondary/40 p-3">
+                      <div className="flex items-center gap-2">
+                        <SourceBadge source={PLATFORM_LABEL[s.platform] ?? s.platform} href={s.url} />
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-[10px] text-muted-foreground hover:text-primary truncate"
+                        >
+                          ↗ {s.url}
+                        </a>
+                      </div>
+                      {s.snippet && (
+                        <p className="text-xs italic text-muted-foreground leading-relaxed border-l-2 border-border pl-2">
+                          "{s.snippet}"
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            )}
           </div>
         </article>
 

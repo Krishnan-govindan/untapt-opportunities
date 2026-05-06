@@ -3,7 +3,32 @@ import type { Opportunity } from "@/lib/types";
 import { SourceBadge } from "./SourceBadge";
 import { UrgencyMeter } from "./UrgencyMeter";
 
+const PLATFORM_TO_SOURCE: Record<string, string> = {
+  reddit: "Reddit",
+  hackernews: "HN",
+  twitter: "X",
+  google: "Product Hunt",
+};
+
+function sourceUrlFor(o: Opportunity, displayName: string): string | undefined {
+  if (!o.sources_detail) return undefined;
+  const platform = Object.entries(PLATFORM_TO_SOURCE).find(([, v]) => v === displayName)?.[0];
+  return o.sources_detail.find((s) => s.platform === platform)?.url;
+}
+
+function shortDomain(url: string): string {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    const path = new URL(url).pathname.slice(0, 28);
+    return (host + path).slice(0, 40);
+  } catch {
+    return url.slice(0, 40);
+  }
+}
+
 export function OpportunityCard({ o }: { o: Opportunity }) {
+  const sourceLinks = o.sources_detail?.filter((s) => s.url) ?? [];
+
   return (
     <div
       className={`glow-hover relative flex flex-col rounded-xl border border-border bg-card p-5 ${
@@ -13,7 +38,7 @@ export function OpportunityCard({ o }: { o: Opportunity }) {
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="flex flex-wrap gap-1.5">
           {o.sources.map((s) => (
-            <SourceBadge key={s} source={s} />
+            <SourceBadge key={s} source={s} href={sourceUrlFor(o, s)} />
           ))}
         </div>
         {o.is_hot && (
@@ -28,6 +53,21 @@ export function OpportunityCard({ o }: { o: Opportunity }) {
       <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
         {o.pain_summary}
       </p>
+      {sourceLinks.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
+          {sourceLinks.map((s, i) => (
+            <a
+              key={i}
+              href={s.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-[10px] text-muted-foreground hover:text-primary truncate max-w-[180px]"
+            >
+              ↗ {shortDomain(s.url)}
+            </a>
+          ))}
+        </div>
+      )}
       <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs text-foreground">{o.tam_estimate}</span>

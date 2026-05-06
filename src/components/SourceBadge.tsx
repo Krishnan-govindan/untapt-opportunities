@@ -5,14 +5,16 @@ const STYLES: Record<string, { label: string; cls: string }> = {
   ProductHunt: { label: "PH", cls: "bg-[color:var(--ph)]/15 text-[color:var(--ph)] border-[color:var(--ph)]/30" },
 };
 
-export function SourceBadge({ source }: { source: string }) {
+export function SourceBadge({ source, href }: { source: string; href?: string }) {
   const key = source === "Product Hunt" ? "ProductHunt" : source;
   const style = STYLES[key] ?? { label: source, cls: "bg-muted text-muted-foreground border-border" };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider ${style.cls}`}
-    >
-      {style.label}
-    </span>
-  );
+  const cls = `inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider ${style.cls}`;
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={`${cls} hover:opacity-80 transition-opacity`}>
+        {style.label}
+      </a>
+    );
+  }
+  return <span className={cls}>{style.label}</span>;
 }
