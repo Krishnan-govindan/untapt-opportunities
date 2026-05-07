@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
 import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
 import type { Opportunity } from "@/lib/types";
 import {
   Dialog,
@@ -89,8 +88,6 @@ export function BuildPrototypeModal({
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
-  const navigate = useNavigate();
-
   const handleClose = () => {
     if (readerRef.current) {
       readerRef.current.cancel().catch(() => {});
@@ -173,8 +170,7 @@ export function BuildPrototypeModal({
   };
 
   const openDemo = (path: string) => {
-    handleClose();
-    navigate({ to: path });
+    window.open(path, "_blank", "noopener,noreferrer");
   };
 
   return (
