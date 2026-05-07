@@ -73,7 +73,7 @@ async function handleAgent(req, res) {
       messages: body.messages ?? [],
       maxTokens: 512,
     });
-    await pipeWebResponse(result.toDataStreamResponse(), res);
+    await pipeWebResponse(result.toUIMessageStreamResponse(), res);
   } catch (err) {
     console.error('Agent error:', err);
     if (!res.headersSent) {
