@@ -45,7 +45,7 @@ export function AgentSidebar() {
 
   const starters = STARTERS[pageContext?.type ?? "default"] ?? STARTERS.default;
 
-  const { messages, input, setInput, append, handleSubmit, status, setMessages } = useChat({
+  const { messages, input = "", setInput, append, handleSubmit, status, setMessages } = useChat({
     api: "/api/agent",
     body: { context: pageContext ?? undefined },
     id: pageContext?.type === "opportunity"
