@@ -1,5 +1,6 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAgent } from "@/lib/agent-context";
 import {
   BarChart,
   Bar,
@@ -263,6 +264,12 @@ function Detail() {
   const [open, setOpen] = useState(false);
   const validSources = (o.sources ?? []).filter((s) => !s.startsWith("http"));
   const badges = categoryBadges({ ...o, sources: validSources });
+  const { setPageContext } = useAgent();
+
+  useEffect(() => {
+    setPageContext({ type: "opportunity", opportunity: o });
+    return () => setPageContext(null);
+  }, [o.id, setPageContext]);
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-12">

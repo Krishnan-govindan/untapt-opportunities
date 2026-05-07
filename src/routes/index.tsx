@@ -5,6 +5,7 @@ import type { Opportunity } from "@/lib/types";
 import { OpportunityCard } from "@/components/OpportunityCard";
 import { CardSkeleton } from "@/components/CardSkeleton";
 import { LiveCounter } from "@/components/LiveCounter";
+import { useAgent } from "@/lib/agent-context";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -48,6 +49,7 @@ function Index() {
   const [rawQuery, setRawQuery] = useState("");
   const [query, setQuery]       = useState("");
   const [filter, setFilter]     = useState<Filter>("all");
+  const { setPageContext }       = useAgent();
 
   const offset        = useRef(0);
   const loadingMore   = useRef(false);
@@ -100,6 +102,11 @@ function Index() {
     loadMore(true, query, filter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, filter]);
+
+  // Sync feed context to agent sidebar
+  useEffect(() => {
+    setPageContext({ type: "feed", query: query || undefined, filter: filter !== "all" ? filter : undefined });
+  }, [query, filter, setPageContext]);
 
   // Initial total count
   useEffect(() => {

@@ -11,6 +11,8 @@ import { Toaster } from "sonner";
 
 import appCss from "../styles.css?url";
 import { Header } from "@/components/Header";
+import { AgentSidebar } from "@/components/AgentSidebar";
+import { AgentProvider } from "@/lib/agent-context";
 
 function NotFoundComponent() {
   return (
@@ -116,10 +118,12 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="min-h-screen">
-        <Header />
-        <Outlet />
-        <Toaster
+      <AgentProvider>
+        <div className="min-h-screen">
+          <Header />
+          <Outlet />
+          <AgentSidebar />
+          <Toaster
           position="top-center"
           theme="dark"
           toastOptions={{
@@ -129,8 +133,9 @@ function RootComponent() {
               color: "oklch(0.97 0.005 270)",
             },
           }}
-        />
-      </div>
+          />
+        </div>
+      </AgentProvider>
     </QueryClientProvider>
   );
 }
