@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { supabase } from "@/integrations/supabase/client";
 import type { Opportunity } from "@/lib/types";
 
 type SearchableOpportunity = Opportunity & {
@@ -112,7 +112,7 @@ async function loadOpportunities(): Promise<SearchableOpportunity[]> {
 
   for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
     const to = from + PAGE_SIZE - 1;
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from("opportunities")
       .select("*")
       .order("created_at", { ascending: false })
