@@ -32,8 +32,7 @@ function categoryBadges(o: Opportunity) {
   if (o.is_hot) badges.push({ emoji: "🔥", label: "Hot", cls: "badge-hot" });
   if (!o.is_hot && o.urgency_score >= 8)
     badges.push({ emoji: "⚡", label: "Urgent", cls: "badge-urgent" });
-  if (o.urgency_score <= 3)
-    badges.push({ emoji: "🧊", label: "Early", cls: "badge-early" });
+  if (o.urgency_score <= 3) badges.push({ emoji: "🧊", label: "Early", cls: "badge-early" });
   const tam = o.tam_estimate ?? "";
   if (/\$\d.*[BT]/.test(tam) || /billion|trillion/i.test(tam))
     badges.push({ emoji: "💰", label: "Big TAM", cls: "badge-tam" });
@@ -57,8 +56,7 @@ function UrgencyDial({ score }: { score: number }) {
   const START = -120;
   const SWEEP = 240;
   const fillEnd = START + (score / 10) * SWEEP;
-  const color =
-    score >= 8 ? "#f97316" : score >= 5 ? "#a855f7" : "#60a5fa";
+  const color = score >= 8 ? "#f97316" : score >= 5 ? "#a855f7" : "#60a5fa";
   const emoji = score >= 8 ? "🔥" : score >= 5 ? "⚡" : "🧊";
   const label = score >= 8 ? "High" : score >= 5 ? "Mid" : "Low";
 
@@ -100,20 +98,28 @@ function UrgencyDial({ score }: { score: number }) {
 }
 
 // ─── Competitor price chart ───────────────────────────────────────────────────
-function parsePrice(pricing: string): number {
+function competitorPricing(competitor: Opportunity["competitors"][number]): string {
+  return competitor.pricing ?? competitor.pricing_hint ?? "Pricing unknown";
+}
+
+function parsePrice(pricing: unknown): number {
+  if (typeof pricing !== "string") return 0;
   const m = pricing.match(/\$(\d[\d,]*)/);
   if (!m) return 0;
   return parseInt(m[1].replace(/,/g, ""), 10);
 }
 
-function CompetitorChart({ competitors }: { competitors: { name: string; pricing: string }[] }) {
+function CompetitorChart({ competitors }: { competitors: Opportunity["competitors"] }) {
   if (!competitors?.length) return null;
 
-  const data = competitors.map((c) => ({
-    name: c.name.length > 16 ? c.name.slice(0, 15) + "…" : c.name,
-    price: parsePrice(c.pricing),
-    pricing: c.pricing,
-  }));
+  const data = competitors.map((c) => {
+    const pricing = competitorPricing(c);
+    return {
+      name: c.name.length > 16 ? c.name.slice(0, 15) + "…" : c.name,
+      price: parsePrice(pricing),
+      pricing,
+    };
+  });
   const max = Math.max(...data.map((d) => d.price), 1);
 
   const COLORS = ["#a855f7", "#8b5cf6", "#7c3aed", "#6d28d9", "#5b21b6"];
@@ -173,7 +179,10 @@ function CompetitorChart({ competitors }: { competitors: { name: string; pricing
           {data
             .filter((d) => d.price === 0)
             .map((d, i) => (
-              <li key={i} className="flex items-center justify-between rounded border border-border bg-secondary/40 px-3 py-1.5 text-xs">
+              <li
+                key={i}
+                className="flex items-center justify-between rounded border border-border bg-secondary/40 px-3 py-1.5 text-xs"
+              >
                 <span className="font-medium text-foreground">{d.name}</span>
                 <span className="font-mono text-muted-foreground">{d.pricing}</span>
               </li>
@@ -187,8 +196,7 @@ function CompetitorChart({ competitors }: { competitors: { name: string; pricing
 // ─── Opportunity score radial ─────────────────────────────────────────────────
 function ScoreBars({ o }: { o: Opportunity }) {
   const tam = o.tam_estimate ?? "";
-  const tamScore =
-    /[BT]/.test(tam) ? 9 : /\$\d.*M/.test(tam) ? 6 : 4;
+  const tamScore = /[BT]/.test(tam) ? 9 : /\$\d.*M/.test(tam) ? 6 : 4;
 
   const bars = [
     { label: "Urgency", value: o.urgency_score * 10, fill: "#a855f7" },
@@ -208,7 +216,12 @@ function ScoreBars({ o }: { o: Opportunity }) {
         data={bars}
       >
         <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-        <RadialBar dataKey="value" background={{ fill: "#1e1e2e" }} cornerRadius={4} label={false} />
+        <RadialBar
+          dataKey="value"
+          background={{ fill: "#1e1e2e" }}
+          cornerRadius={4}
+          label={false}
+        />
         <Tooltip
           contentStyle={{
             background: "#1a1a2e",
@@ -269,13 +282,12 @@ function Detail() {
   useEffect(() => {
     setPageContext({ type: "opportunity", opportunity: o });
     return () => setPageContext(null);
-  }, [o.id, setPageContext]);
+  }, [o, setPageContext]);
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-12">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_400px]">
         <article className="space-y-8">
-
           {/* ── Header ── */}
           <header>
             {/* Badges */}
@@ -311,13 +323,18 @@ function Detail() {
                 </span>
                 <div className="mt-2 w-full">
                   <div className="flex justify-between font-mono text-[9px] text-muted-foreground">
-                    <span>Niche</span><span>Massive</span>
+                    <span>Niche</span>
+                    <span>Massive</span>
                   </div>
                   <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-violet-500"
                       style={{
-                        width: /[BT]/.test(o.tam_estimate) ? "90%" : /M/.test(o.tam_estimate) ? "60%" : "35%",
+                        width: /[BT]/.test(o.tam_estimate)
+                          ? "90%"
+                          : /M/.test(o.tam_estimate)
+                            ? "60%"
+                            : "35%",
                       }}
                     />
                   </div>
@@ -342,9 +359,18 @@ function Detail() {
                 {/* mini radial bars */}
                 <ScoreBars o={{ ...o, sources: validSources }} />
                 <div className="flex gap-3 text-[9px] font-mono text-muted-foreground">
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-violet-500" />Urgency</span>
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-cyan-400" />Market</span>
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-orange-400" />Signal</span>
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-violet-500" />
+                    Urgency
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-cyan-400" />
+                    Market
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-orange-400" />
+                    Signal
+                  </span>
                 </div>
               </div>
             </div>
@@ -371,14 +397,16 @@ function Detail() {
               {/* Also show non-chart rows for pricing strings that had $0 parsed but aren't truly free */}
               <ul className="mt-3 space-y-2">
                 {o.competitors
-                  .filter((c) => parsePrice(c.pricing) > 0)
+                  .filter((c) => parsePrice(competitorPricing(c)) > 0)
                   .map((c, i) => (
                     <li
                       key={i}
                       className="flex items-center justify-between rounded-md border border-border bg-secondary px-3 py-2"
                     >
                       <span className="font-medium text-sm">{c.name}</span>
-                      <span className="font-mono text-xs text-muted-foreground">{c.pricing}</span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {competitorPricing(c)}
+                      </span>
                     </li>
                   ))}
               </ul>

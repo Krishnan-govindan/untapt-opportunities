@@ -14,7 +14,7 @@ export type Opportunity = {
   urgency_score: number;
   icp: string;
   pain_description: string;
-  competitors: { name: string; pricing: string }[];
+  competitors: { name: string; pricing?: string; pricing_hint?: string; weakness?: string }[];
   why_now: string;
   mvp_features: string[];
   is_hot: boolean;

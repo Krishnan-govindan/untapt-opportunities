@@ -20,6 +20,56 @@ type Phase =
     }
   | { kind: "error"; message: string };
 
+type ExploreHistoryEntry = {
+  id: string;
+  topic: string;
+  mode: "saved" | "research";
+  opportunities: Opportunity[];
+  totalScanned?: number;
+  messages: string[];
+  createdAt: string;
+};
+
+const HISTORY_KEY = "untapt-explore-history:v1";
+const MAX_HISTORY = 12;
+
+function createHistoryId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function readHistory(): ExploreHistoryEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ExploreHistoryEntry[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (entry) =>
+        entry &&
+        typeof entry.id === "string" &&
+        typeof entry.topic === "string" &&
+        Array.isArray(entry.opportunities),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function formatHistoryDate(value: string) {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch {
+    return "Recent";
+  }
+}
+
 function agentOpportunities(opportunities: Opportunity[]) {
   return opportunities.slice(0, 8).map((o) => ({
     id: o.id,
@@ -40,8 +90,79 @@ function agentOpportunities(opportunities: Opportunity[]) {
 function Explore() {
   const [topic, setTopic] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  const [history, setHistory] = useState<ExploreHistoryEntry[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
   const { setOpen, setPageContext } = useAgent();
+
+  useEffect(() => {
+    setHistory(readHistory());
+    setHistoryLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!historyLoaded || typeof window === "undefined") return;
+    window.localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  }, [history, historyLoaded]);
+
+  useEffect(() => {
+    if (!historyLoaded || !history.length || typeof window === "undefined") return;
+    const match = window.location.hash.match(/^#research-(.+)$/);
+    if (!match) return;
+    const entry = history.find((item) => item.id === match[1]);
+    if (entry) openHistoryEntry(entry, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyLoaded]);
+
+  const rememberResult = (
+    entry: Omit<ExploreHistoryEntry, "id" | "createdAt">,
+  ): ExploreHistoryEntry => {
+    const next: ExploreHistoryEntry = {
+      ...entry,
+      id: createHistoryId(),
+      createdAt: new Date().toISOString(),
+    };
+
+    setHistory((prev) => {
+      const topicKey = entry.topic.trim().toLowerCase();
+      const resultKey = entry.opportunities.map((o) => o.id).join("|");
+      const deduped = prev.filter((item) => {
+        const sameTopic = item.topic.trim().toLowerCase() === topicKey;
+        const sameMode = item.mode === entry.mode;
+        const sameResults = item.opportunities.map((o) => o.id).join("|") === resultKey;
+        return !(sameTopic && sameMode && sameResults);
+      });
+      return [next, ...deduped].slice(0, MAX_HISTORY);
+    });
+
+    setActiveHistoryId(next.id);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#research-${next.id}`);
+    }
+    return next;
+  };
+
+  const openHistoryEntry = (entry: ExploreHistoryEntry, scroll = true) => {
+    setTopic(entry.topic);
+    setActiveHistoryId(entry.id);
+    setPhase({
+      kind: "done",
+      mode: entry.mode,
+      opportunities: entry.opportunities,
+      topic: entry.topic,
+      totalScanned: entry.totalScanned,
+    });
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#research-${entry.id}`);
+    }
+    if (scroll) {
+      window.requestAnimationFrame(() =>
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,12 +193,20 @@ function Explore() {
         return;
       }
 
+      const opportunities = data.opportunities ?? [];
       setPhase({
         kind: "done",
         mode: "saved",
-        opportunities: data.opportunities ?? [],
+        opportunities,
         topic: query,
         totalScanned: data.totalScanned,
+      });
+      rememberResult({
+        mode: "saved",
+        topic: query,
+        opportunities,
+        totalScanned: data.totalScanned,
+        messages: ["Searched saved opportunities"],
       });
     } catch (err: unknown) {
       setPhase({
@@ -92,7 +221,8 @@ function Explore() {
     if (!trimmed) return;
 
     setTopic(trimmed);
-    setPhase({ kind: "running", mode: "research", messages: ["Starting web research…"] });
+    let progressMessages = ["Starting web research…"];
+    setPhase({ kind: "running", mode: "research", messages: progressMessages });
 
     try {
       const res = await fetch("/api/explore", {
@@ -134,21 +264,31 @@ function Explore() {
             try {
               const data = JSON.parse(line.slice(6)) as Record<string, unknown>;
               if (currentEvent === "status") {
+                const message = String(data.message ?? "Working…");
+                progressMessages = [...progressMessages, message];
                 setPhase((prev) =>
                   prev.kind === "running"
                     ? {
                         kind: "running",
                         mode: prev.mode,
-                        messages: [...prev.messages, data.message as string],
+                        messages: [...prev.messages, message],
                       }
                     : prev,
                 );
               } else if (currentEvent === "done") {
+                const opportunities = (data.opportunities as Opportunity[]) ?? [];
+                const doneTopic = String(data.topic ?? trimmed);
                 setPhase({
                   kind: "done",
                   mode: "research",
-                  opportunities: data.opportunities as Opportunity[],
-                  topic: data.topic as string,
+                  opportunities,
+                  topic: doneTopic,
+                });
+                rememberResult({
+                  mode: "research",
+                  topic: doneTopic,
+                  opportunities,
+                  messages: progressMessages,
                 });
               } else if (currentEvent === "error") {
                 setPhase({
@@ -279,7 +419,7 @@ function Explore() {
 
       {/* ── Results ──────────────────────────────────────────────────── */}
       {phase.kind === "done" && (
-        <div>
+        <div ref={resultsRef}>
           <div className="mb-6 flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-foreground">
@@ -294,7 +434,13 @@ function Explore() {
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setPhase({ kind: "idle" })}
+                onClick={() => {
+                  setPhase({ kind: "idle" });
+                  setActiveHistoryId(null);
+                  if (typeof window !== "undefined") {
+                    window.history.replaceState(null, "", window.location.pathname);
+                  }
+                }}
                 className="text-xs text-muted-foreground underline hover:text-foreground"
               >
                 Search again
@@ -380,7 +526,145 @@ function Explore() {
           </div>
         </div>
       )}
+
+      <ExploreHistory
+        history={history}
+        activeHistoryId={activeHistoryId}
+        onOpen={openHistoryEntry}
+        onClear={() => {
+          setHistory([]);
+          setActiveHistoryId(null);
+          if (typeof window !== "undefined") {
+            window.history.replaceState(null, "", window.location.pathname);
+          }
+        }}
+      />
     </main>
+  );
+}
+
+function ExploreHistory({
+  history,
+  activeHistoryId,
+  onOpen,
+  onClear,
+}: {
+  history: ExploreHistoryEntry[];
+  activeHistoryId: string | null;
+  onOpen: (entry: ExploreHistoryEntry) => void;
+  onClear: () => void;
+}) {
+  const activeEntry = history.find((entry) => entry.id === activeHistoryId) ?? history[0];
+
+  return (
+    <section className="mt-14 border-t border-border pt-8">
+      <div className="mb-5 flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+            Research history
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Saved searches and web research stay here so you can reopen the exact result set.
+          </p>
+        </div>
+        {history.length > 0 && (
+          <button
+            onClick={onClear}
+            className="text-xs text-muted-foreground underline hover:text-foreground"
+          >
+            Clear history
+          </button>
+        )}
+      </div>
+
+      {history.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card/40 p-8 text-sm text-muted-foreground">
+          Run a saved search or Research web. The full result set will be stored here.
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-3">
+            {history.map((entry) => {
+              const selected = entry.id === activeEntry?.id;
+              return (
+                <button
+                  key={entry.id}
+                  onClick={() => onOpen(entry)}
+                  className={`rounded-xl border p-4 text-left transition-colors ${
+                    selected
+                      ? "border-primary/60 bg-primary/10"
+                      : "border-border bg-card/60 hover:border-primary/40"
+                  }`}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded border border-border bg-secondary px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                          {entry.mode === "research" ? "Web research" : "Saved search"}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {formatHistoryDate(entry.createdAt)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm font-semibold text-foreground">{entry.topic}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {entry.opportunities.length} opportunit
+                        {entry.opportunities.length === 1 ? "y" : "ies"}
+                        {entry.totalScanned ? ` across ${entry.totalScanned} scanned items` : ""}
+                      </p>
+                    </div>
+                    <span className="text-xs font-medium text-primary">
+                      {selected ? "Showing below" : "Open results"}
+                    </span>
+                  </div>
+                  {entry.messages.length > 1 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {entry.messages.slice(-3).map((message, i) => (
+                        <span
+                          key={`${entry.id}-${i}`}
+                          className="rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
+                        >
+                          {message}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {activeEntry && (
+            <div className="mt-8">
+              <div className="mb-4 flex items-baseline justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">
+                    Stored results for "{activeEntry.topic}"
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Click a history item above to swap this exact saved result set.
+                  </p>
+                </div>
+                <span className="font-mono text-xs text-muted-foreground">
+                  {activeEntry.opportunities.length} saved
+                </span>
+              </div>
+              {activeEntry.opportunities.length === 0 ? (
+                <div className="rounded-xl border border-border bg-card/50 p-8 text-sm text-muted-foreground">
+                  This run completed with no stored opportunities.
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {activeEntry.opportunities.map((o) => (
+                    <OpportunityCard key={`${activeEntry.id}-${o.id}`} o={o} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
