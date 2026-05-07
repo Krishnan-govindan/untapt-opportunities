@@ -76,6 +76,8 @@ const RELEVANCE_KWS = [
   "workaround",
 ];
 
+const FALLBACK_STOP_WORDS = new Set(["a", "all", "and", "for", "from", "the", "to", "with"]);
+
 const RESEARCH_DOMAINS = [
   "ncbi.nlm.nih.gov",
   "researchgate.net",
@@ -151,6 +153,65 @@ function isRelevant(item: RawItem): boolean {
     return false;
   // For topic-specific searches, be more lenient — include if it mentions the topic context
   return RELEVANCE_KWS.some((kw) => text.includes(kw)) || text.length > 100;
+}
+
+function normalize(value: unknown): string {
+  const text =
+    Array.isArray(value) || (value && typeof value === "object")
+      ? JSON.stringify(value)
+      : String(value ?? "");
+
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function fallbackTokens(topic: string): string[] {
+  return normalize(topic)
+    .split(" ")
+    .filter((token) => token.length > 2 && !FALLBACK_STOP_WORDS.has(token));
+}
+
+function scoreSavedFallback(row: Record<string, unknown>, topic: string): number {
+  const phrase = normalize(topic);
+  const tokens = fallbackTokens(topic);
+  const fields: Array<[unknown, number]> = [
+    [row.title, 8],
+    [row.pain_summary, 6],
+    [row.pain_description, 5],
+    [row.icp, 4],
+    [row.why_now, 4],
+    [row.mvp_features, 3],
+    [row.competitors, 2],
+    [row.sources_detail, 2],
+  ];
+
+  const haystack = fields.map(([value]) => normalize(value)).join(" ");
+  let score = phrase && haystack.includes(phrase) ? 40 : 0;
+  for (const [value, weight] of fields) {
+    const text = normalize(value);
+    score += tokens.filter((token) => text.includes(token)).length * weight;
+  }
+  score += Number(row.urgency_score ?? 0) / 10;
+  return score;
+}
+
+async function savedFallback(topic: string): Promise<Record<string, unknown>[]> {
+  const { data, error } = await supabaseAdmin
+    .from("opportunities")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(1000);
+
+  if (error) throw error;
+  return ((data ?? []) as Record<string, unknown>[])
+    .map((row) => ({ row, score: scoreSavedFallback(row, topic) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 36)
+    .map(({ row }) => row);
 }
 
 // ─── Scrapers ─────────────────────────────────────────────────────────────────
@@ -370,6 +431,20 @@ async function runExplorePipeline(
     }
 
     if (filtered.length === 0) {
+      send("status", {
+        message: `No fresh web signals found; loading saved opportunities for "${topic}"…`,
+      });
+      const fallback = await savedFallback(topic);
+      if (fallback.length > 0) {
+        send("done", {
+          opportunities: fallback,
+          topic,
+          fallback: true,
+          message:
+            "No fresh web signals found, so these are the best matching saved opportunities.",
+        });
+        return;
+      }
       send("error", {
         message:
           "No relevant pain points found for this topic. Try a more specific industry or product category.",
@@ -388,6 +463,19 @@ async function runExplorePipeline(
     }
 
     if (allOpps.length === 0) {
+      send("status", {
+        message: `AI found no new structured opportunities; loading saved matches for "${topic}"…`,
+      });
+      const fallback = await savedFallback(topic);
+      if (fallback.length > 0) {
+        send("done", {
+          opportunities: fallback,
+          topic,
+          fallback: true,
+          message: "AI found no new structured opportunities, so these are the best saved matches.",
+        });
+        return;
+      }
       send("error", {
         message: "AI found no structured opportunities in these results. Try a different topic.",
       });
