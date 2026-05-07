@@ -32,3 +32,5 @@ dist-ssr
 *.sw?
 .env
 .vercel
+backup_*.json
+supabase/.temp/

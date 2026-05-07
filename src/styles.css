@@ -166,6 +166,40 @@
 }
 .fade-in-up { animation: fade-in-up 350ms cubic-bezier(.2,.8,.2,1); }
 
+/* Search input */
+.search-input {
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.search-input:focus {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 15%, transparent);
+}
+
+/* Filter chips */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  color: var(--color-muted-foreground);
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+  cursor: pointer;
+}
+.filter-chip:hover {
+  border-color: color-mix(in oklab, var(--primary) 50%, var(--border));
+  color: var(--color-foreground);
+}
+.filter-chip-active {
+  border-color: color-mix(in oklab, var(--primary) 70%, transparent);
+  background: color-mix(in oklab, var(--primary) 12%, var(--card));
+  color: var(--color-foreground);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary) 20%, transparent);
+}
+
 /* Category badges */
 .category-badge {
   display: inline-flex;
