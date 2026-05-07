@@ -1,7 +1,7 @@
 import { createAPIFileRoute } from '@tanstack/react-start/api'
 import Anthropic from '@anthropic-ai/sdk'
 import { ApifyClient } from 'apify-client'
-import { createHash } from 'crypto'
+import { createHash } from 'node:crypto'
 import { supabaseAdmin } from '@/integrations/supabase/client.server'
 
 // ─── Constants (mirrored from scrape-and-cluster.ts) ─────────────────────────
