@@ -99,6 +99,9 @@ function scoreOpportunity(row: SearchableOpportunity, query: string, tokens: str
   const matchedTokenCount = tokens.filter((token) =>
     tokenVariants(token).some((variant) => haystack.includes(variant)),
   ).length;
+
+  if (tokens.length > 1 && matchedTokenCount < Math.min(tokens.length, 2)) return 0;
+
   score += matchedTokenCount * matchedTokenCount;
 
   if (row.is_hot) score += 2;

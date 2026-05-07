@@ -17,6 +17,8 @@ type Phase =
       opportunities: Opportunity[];
       topic: string;
       totalScanned?: number;
+      message?: string;
+      empty?: boolean;
     }
   | { kind: "error"; message: string };
 
@@ -27,6 +29,8 @@ type ExploreHistoryEntry = {
   opportunities: Opportunity[];
   totalScanned?: number;
   messages: string[];
+  message?: string;
+  empty?: boolean;
   createdAt: string;
 };
 
@@ -153,6 +157,8 @@ function Explore() {
       opportunities: entry.opportunities,
       topic: entry.topic,
       totalScanned: entry.totalScanned,
+      message: entry.message,
+      empty: entry.empty,
     });
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", `#research-${entry.id}`);
@@ -278,17 +284,23 @@ function Explore() {
               } else if (currentEvent === "done") {
                 const opportunities = (data.opportunities as Opportunity[]) ?? [];
                 const doneTopic = String(data.topic ?? trimmed);
+                const message = typeof data.message === "string" ? data.message : undefined;
+                const empty = data.empty === true || opportunities.length === 0;
                 setPhase({
                   kind: "done",
                   mode: "research",
                   opportunities,
                   topic: doneTopic,
+                  message,
+                  empty,
                 });
                 rememberResult({
                   mode: "research",
                   topic: doneTopic,
                   opportunities,
-                  messages: progressMessages,
+                  messages: message ? [...progressMessages, message] : progressMessages,
+                  message,
+                  empty,
                 });
               } else if (currentEvent === "error") {
                 setPhase({
@@ -429,8 +441,13 @@ function Explore() {
               <p className="text-sm text-muted-foreground">
                 {phase.mode === "saved"
                   ? `for “${phase.topic}” across ${phase.totalScanned ?? "saved"} items`
-                  : `for “${phase.topic}” — now live on the feed`}
+                  : phase.empty
+                    ? `for “${phase.topic}” — no fresh web opportunities found`
+                    : `for “${phase.topic}” — fresh web research`}
               </p>
+              {phase.message && (
+                <p className="mt-2 max-w-xl text-xs text-muted-foreground">{phase.message}</p>
+              )}
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -478,16 +495,19 @@ function Explore() {
 
           {phase.opportunities.length === 0 ? (
             <div className="rounded-xl border border-border bg-card p-10 text-center text-sm text-muted-foreground">
-              No saved opportunities matched this search. Run web research to collect fresh signals
-              for this thesis.
-              <div className="mt-4">
-                <button
-                  onClick={() => runResearch(phase.topic)}
-                  className="rounded-md border border-primary/40 bg-primary/10 px-4 py-2 text-xs font-medium text-primary hover:bg-primary/15"
-                >
-                  Research web
-                </button>
-              </div>
+              {phase.mode === "research"
+                ? "This web research run completed with no fresh opportunities. The run is stored in history below with its research log."
+                : "No saved opportunities matched this search. Run web research to collect fresh signals for this thesis."}
+              {phase.mode === "saved" && (
+                <div className="mt-4">
+                  <button
+                    onClick={() => runResearch(phase.topic)}
+                    className="rounded-md border border-primary/40 bg-primary/10 px-4 py-2 text-xs font-medium text-primary hover:bg-primary/15"
+                  >
+                    Research web
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -611,15 +631,19 @@ function ExploreHistory({
                         {entry.opportunities.length} opportunit
                         {entry.opportunities.length === 1 ? "y" : "ies"}
                         {entry.totalScanned ? ` across ${entry.totalScanned} scanned items` : ""}
+                        {entry.empty ? " · no fresh results" : ""}
                       </p>
+                      {entry.message && (
+                        <p className="mt-1 text-xs text-muted-foreground">{entry.message}</p>
+                      )}
                     </div>
                     <span className="text-xs font-medium text-primary">
                       {selected ? "Showing below" : "Open results"}
                     </span>
                   </div>
-                  {entry.messages.length > 1 && (
+                  {(entry.messages ?? []).length > 1 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
-                      {entry.messages.slice(-3).map((message, i) => (
+                      {(entry.messages ?? []).slice(-3).map((message, i) => (
                         <span
                           key={`${entry.id}-${i}`}
                           className="rounded-full border border-border bg-background px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
@@ -639,7 +663,8 @@ function ExploreHistory({
               <div className="mb-4 flex items-baseline justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-foreground">
-                    Stored results for "{activeEntry.topic}"
+                    Stored {activeEntry.mode === "research" ? "research" : "results"} for &quot;
+                    {activeEntry.topic}&quot;
                   </h3>
                   <p className="text-sm text-muted-foreground">
                     Click a history item above to swap this exact saved result set.
@@ -651,7 +676,8 @@ function ExploreHistory({
               </div>
               {activeEntry.opportunities.length === 0 ? (
                 <div className="rounded-xl border border-border bg-card/50 p-8 text-sm text-muted-foreground">
-                  This run completed with no stored opportunities.
+                  {activeEntry.message ??
+                    "This run completed with no stored opportunities. Its research log is preserved in the history item above."}
                 </div>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

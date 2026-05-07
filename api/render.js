@@ -150,7 +150,6 @@ const RESEARCH_DOMAINS = [
   "ieee.org",
   "sciencedirect.com",
 ];
-const FALLBACK_STOP_WORDS = new Set(["a", "all", "and", "for", "from", "the", "to", "with"]);
 const SYSTEM_PROMPT = `You are a venture analyst. Given public complaints, output a JSON array of distinct startup opportunities. For each:
 {"title":string,"pain":string,"icp":string,"market_size_usd":number,"urgency_score":1-10,"why_now":string,"competitors":[{"name":string,"pricing_hint":string,"weakness":string}],"mvp_features":[string],"sources":[{"platform":string,"snippet":string,"url":string}]}
 Cluster similar complaints. Skip generic ones. Output ONLY valid JSON, no preamble.`;
@@ -175,62 +174,6 @@ function isRelevant(item) {
   if (item.platform === "google" && RESEARCH_DOMAINS.some((d) => item.url.includes(d)))
     return false;
   return RELEVANCE_KWS.some((kw) => text.includes(kw)) || text.length > 100;
-}
-
-function normalize(value) {
-  const text =
-    Array.isArray(value) || (value && typeof value === "object")
-      ? JSON.stringify(value)
-      : String(value ?? "");
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function fallbackTokens(topic) {
-  return normalize(topic)
-    .split(" ")
-    .filter((token) => token.length > 2 && !FALLBACK_STOP_WORDS.has(token));
-}
-
-function scoreSavedFallback(row, topic) {
-  const phrase = normalize(topic);
-  const tokens = fallbackTokens(topic);
-  const fields = [
-    [row.title, 8],
-    [row.pain_summary, 6],
-    [row.pain_description, 5],
-    [row.icp, 4],
-    [row.why_now, 4],
-    [row.mvp_features, 3],
-    [row.competitors, 2],
-    [row.sources_detail, 2],
-  ];
-  const haystack = fields.map(([value]) => normalize(value)).join(" ");
-  let score = phrase && haystack.includes(phrase) ? 40 : 0;
-  for (const [value, weight] of fields) {
-    const text = normalize(value);
-    score += tokens.filter((token) => text.includes(token)).length * weight;
-  }
-  score += Number(row.urgency_score ?? 0) / 10;
-  return score;
-}
-
-async function savedFallback(supabase, topic) {
-  const { data, error } = await supabase
-    .from("opportunities")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(1000);
-  if (error) throw error;
-  return (data ?? [])
-    .map((row) => ({ row, score: scoreSavedFallback(row, topic) }))
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 36)
-    .map(({ row }) => row);
 }
 
 async function handleExplore(req, res) {
@@ -354,21 +297,14 @@ async function handleExplore(req, res) {
 
     if (!filtered.length) {
       send("status", {
-        message: `No fresh web signals found; loading saved opportunities for "${topic}"…`,
+        message: `No fresh web signals found for "${topic}".`,
       });
-      const fallback = await savedFallback(supabase, topic);
-      if (fallback.length) {
-        send("done", {
-          opportunities: fallback,
-          topic,
-          fallback: true,
-          message:
-            "No fresh web signals found, so these are the best matching saved opportunities.",
-        });
-        res.end();
-        return;
-      }
-      send("error", { message: "No relevant pain points found. Try a more specific niche." });
+      send("done", {
+        opportunities: [],
+        topic,
+        empty: true,
+        message: `No fresh web research results were found for "${topic}". Saved feed results were not substituted.`,
+      });
       res.end();
       return;
     }
@@ -412,20 +348,14 @@ async function handleExplore(req, res) {
 
     if (!allOpps.length) {
       send("status", {
-        message: `AI found no new structured opportunities; loading saved matches for "${topic}"…`,
+        message: `AI found no new structured opportunities for "${topic}".`,
       });
-      const fallback = await savedFallback(supabase, topic);
-      if (fallback.length) {
-        send("done", {
-          opportunities: fallback,
-          topic,
-          fallback: true,
-          message: "AI found no new structured opportunities, so these are the best saved matches.",
-        });
-        res.end();
-        return;
-      }
-      send("error", { message: "AI found no structured opportunities. Try a different topic." });
+      send("done", {
+        opportunities: [],
+        topic,
+        empty: true,
+        message: `The web scrapers found signals for "${topic}", but AI could not extract a structured startup opportunity. Saved feed results were not substituted.`,
+      });
       res.end();
       return;
     }
