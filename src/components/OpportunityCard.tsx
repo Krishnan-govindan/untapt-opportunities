@@ -57,17 +57,20 @@ function shortDomain(url: string): string {
 }
 
 export function OpportunityCard({ o }: { o: Opportunity }) {
+  // Guard against rows where `sources` accidentally stored full URLs instead of platform names
+  const validSources = (o.sources ?? []).filter((s) => !s.startsWith("http"));
+
   const realLinks = o.sources_detail?.filter((s) => s.url) ?? [];
   // Fall back to one demo link per platform badge when no real sources exist
   const sourceLinks = realLinks.length > 0
     ? realLinks
-    : o.sources.slice(0, 2).map((s) => ({
+    : validSources.slice(0, 2).map((s) => ({
         url: FALLBACK_URLS[PLATFORM_TO_SOURCE[s] ?? s]?.(titleSlug(o.title)) ?? "",
         platform: s,
         snippet: "",
       })).filter((s) => s.url);
 
-  const badges = categoryBadges(o);
+  const badges = categoryBadges({ ...o, sources: validSources });
 
   return (
     <div
@@ -87,7 +90,7 @@ export function OpportunityCard({ o }: { o: Opportunity }) {
       )}
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="flex flex-wrap gap-1.5">
-          {o.sources.map((s) => (
+          {validSources.map((s) => (
             <SourceBadge key={s} source={s} href={sourceUrlFor(o, s)} />
           ))}
         </div>
