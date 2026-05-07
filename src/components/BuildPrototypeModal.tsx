@@ -177,7 +177,7 @@ export function BuildPrototypeModal({
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Build this prototype</DialogTitle>
+          <DialogTitle>Build this business</DialogTitle>
           <DialogDescription className="line-clamp-2">{opportunity.title}</DialogDescription>
         </DialogHeader>
 
@@ -192,7 +192,7 @@ export function BuildPrototypeModal({
               autoFocus
               className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-glow px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-95 transition-opacity"
             >
-              Build this prototype →
+              Build this business →
             </button>
           </div>
         )}

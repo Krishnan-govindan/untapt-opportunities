@@ -347,7 +347,7 @@ function Detail() {
                 onClick={() => setOpen(true)}
                 className="rounded-md bg-gradient-to-r from-primary to-primary-glow px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-95"
               >
-                Build this prototype →
+                Build this business →
               </button>
             </div>
           </header>
