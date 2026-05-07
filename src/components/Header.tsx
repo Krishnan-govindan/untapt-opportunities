@@ -24,7 +24,9 @@ export function Header() {
           <Link to="/" className={linkCls(location.pathname === "/")}>
             Feed
           </Link>
-
+          <Link to="/explore" className={linkCls(location.pathname === "/explore")}>
+            Explore
+          </Link>
           {/* Agent toggle button */}
           <button
             onClick={toggle}

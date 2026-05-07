@@ -9,10 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OpportunityIdRouteImport } from './routes/opportunity.$id'
 import { Route as DemoIdRouteImport } from './routes/demo.$id'
 
+const ExploreRoute = ExploreRouteImport.update({
+  id: '/explore',
+  path: '/explore',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -31,36 +37,47 @@ const DemoIdRoute = DemoIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/explore': typeof ExploreRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/explore': typeof ExploreRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/explore': typeof ExploreRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/demo/$id' | '/opportunity/$id'
+  fullPaths: '/' | '/explore' | '/demo/$id' | '/opportunity/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/demo/$id' | '/opportunity/$id'
-  id: '__root__' | '/' | '/demo/$id' | '/opportunity/$id'
+  to: '/' | '/explore' | '/demo/$id' | '/opportunity/$id'
+  id: '__root__' | '/' | '/explore' | '/demo/$id' | '/opportunity/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ExploreRoute: typeof ExploreRoute
   DemoIdRoute: typeof DemoIdRoute
   OpportunityIdRoute: typeof OpportunityIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/explore': {
+      id: '/explore'
+      path: '/explore'
+      fullPath: '/explore'
+      preLoaderRoute: typeof ExploreRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ExploreRoute: ExploreRoute,
   DemoIdRoute: DemoIdRoute,
   OpportunityIdRoute: OpportunityIdRoute,
 }
