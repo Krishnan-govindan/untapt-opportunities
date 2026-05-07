@@ -13,6 +13,12 @@ import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OpportunityIdRouteImport } from './routes/opportunity.$id'
 import { Route as DemoIdRouteImport } from './routes/demo.$id'
+import { Route as ApiExploreIndexRouteImport } from './routes/api/explore/index'
+import { Route as ApiChatIndexRouteImport } from './routes/api/chat/index'
+import { Route as ApiBuildIndexRouteImport } from './routes/api/build/index'
+import { Route as ApiAgentIndexRouteImport } from './routes/api/agent/index'
+import { Route as ApiExploreSearchRouteImport } from './routes/api/explore/search'
+import { Route as ApiBuildStatusRouteImport } from './routes/api/build/status'
 
 const ExploreRoute = ExploreRouteImport.update({
   id: '/explore',
@@ -34,18 +40,60 @@ const DemoIdRoute = DemoIdRouteImport.update({
   path: '/demo/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiExploreIndexRoute = ApiExploreIndexRouteImport.update({
+  id: '/api/explore/',
+  path: '/api/explore/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiChatIndexRoute = ApiChatIndexRouteImport.update({
+  id: '/api/chat/',
+  path: '/api/chat/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBuildIndexRoute = ApiBuildIndexRouteImport.update({
+  id: '/api/build/',
+  path: '/api/build/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentIndexRoute = ApiAgentIndexRouteImport.update({
+  id: '/api/agent/',
+  path: '/api/agent/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiExploreSearchRoute = ApiExploreSearchRouteImport.update({
+  id: '/api/explore/search',
+  path: '/api/explore/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBuildStatusRoute = ApiBuildStatusRouteImport.update({
+  id: '/api/build/status',
+  path: '/api/build/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/explore': typeof ExploreRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
+  '/api/build/status': typeof ApiBuildStatusRoute
+  '/api/explore/search': typeof ApiExploreSearchRoute
+  '/api/agent/': typeof ApiAgentIndexRoute
+  '/api/build/': typeof ApiBuildIndexRoute
+  '/api/chat/': typeof ApiChatIndexRoute
+  '/api/explore/': typeof ApiExploreIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/explore': typeof ExploreRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
+  '/api/build/status': typeof ApiBuildStatusRoute
+  '/api/explore/search': typeof ApiExploreSearchRoute
+  '/api/agent': typeof ApiAgentIndexRoute
+  '/api/build': typeof ApiBuildIndexRoute
+  '/api/chat': typeof ApiChatIndexRoute
+  '/api/explore': typeof ApiExploreIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +101,50 @@ export interface FileRoutesById {
   '/explore': typeof ExploreRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
+  '/api/build/status': typeof ApiBuildStatusRoute
+  '/api/explore/search': typeof ApiExploreSearchRoute
+  '/api/agent/': typeof ApiAgentIndexRoute
+  '/api/build/': typeof ApiBuildIndexRoute
+  '/api/chat/': typeof ApiChatIndexRoute
+  '/api/explore/': typeof ApiExploreIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/explore' | '/demo/$id' | '/opportunity/$id'
+  fullPaths:
+    | '/'
+    | '/explore'
+    | '/demo/$id'
+    | '/opportunity/$id'
+    | '/api/build/status'
+    | '/api/explore/search'
+    | '/api/agent/'
+    | '/api/build/'
+    | '/api/chat/'
+    | '/api/explore/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/explore' | '/demo/$id' | '/opportunity/$id'
-  id: '__root__' | '/' | '/explore' | '/demo/$id' | '/opportunity/$id'
+  to:
+    | '/'
+    | '/explore'
+    | '/demo/$id'
+    | '/opportunity/$id'
+    | '/api/build/status'
+    | '/api/explore/search'
+    | '/api/agent'
+    | '/api/build'
+    | '/api/chat'
+    | '/api/explore'
+  id:
+    | '__root__'
+    | '/'
+    | '/explore'
+    | '/demo/$id'
+    | '/opportunity/$id'
+    | '/api/build/status'
+    | '/api/explore/search'
+    | '/api/agent/'
+    | '/api/build/'
+    | '/api/chat/'
+    | '/api/explore/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +152,12 @@ export interface RootRouteChildren {
   ExploreRoute: typeof ExploreRoute
   DemoIdRoute: typeof DemoIdRoute
   OpportunityIdRoute: typeof OpportunityIdRoute
+  ApiBuildStatusRoute: typeof ApiBuildStatusRoute
+  ApiExploreSearchRoute: typeof ApiExploreSearchRoute
+  ApiAgentIndexRoute: typeof ApiAgentIndexRoute
+  ApiBuildIndexRoute: typeof ApiBuildIndexRoute
+  ApiChatIndexRoute: typeof ApiChatIndexRoute
+  ApiExploreIndexRoute: typeof ApiExploreIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +190,48 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemoIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/explore/': {
+      id: '/api/explore/'
+      path: '/api/explore'
+      fullPath: '/api/explore/'
+      preLoaderRoute: typeof ApiExploreIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/chat/': {
+      id: '/api/chat/'
+      path: '/api/chat'
+      fullPath: '/api/chat/'
+      preLoaderRoute: typeof ApiChatIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/build/': {
+      id: '/api/build/'
+      path: '/api/build'
+      fullPath: '/api/build/'
+      preLoaderRoute: typeof ApiBuildIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/': {
+      id: '/api/agent/'
+      path: '/api/agent'
+      fullPath: '/api/agent/'
+      preLoaderRoute: typeof ApiAgentIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/explore/search': {
+      id: '/api/explore/search'
+      path: '/api/explore/search'
+      fullPath: '/api/explore/search'
+      preLoaderRoute: typeof ApiExploreSearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/build/status': {
+      id: '/api/build/status'
+      path: '/api/build/status'
+      fullPath: '/api/build/status'
+      preLoaderRoute: typeof ApiBuildStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +240,12 @@ const rootRouteChildren: RootRouteChildren = {
   ExploreRoute: ExploreRoute,
   DemoIdRoute: DemoIdRoute,
   OpportunityIdRoute: OpportunityIdRoute,
+  ApiBuildStatusRoute: ApiBuildStatusRoute,
+  ApiExploreSearchRoute: ApiExploreSearchRoute,
+  ApiAgentIndexRoute: ApiAgentIndexRoute,
+  ApiBuildIndexRoute: ApiBuildIndexRoute,
+  ApiChatIndexRoute: ApiChatIndexRoute,
+  ApiExploreIndexRoute: ApiExploreIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

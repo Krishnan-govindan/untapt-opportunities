@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport, type UIMessage } from "ai";
 import { useAgent } from "@/lib/agent-context";
 
 const STARTERS: Record<string, string[]> = {
@@ -15,6 +16,12 @@ const STARTERS: Record<string, string[]> = {
     "Help me compare two opportunities",
     "What sectors are heating up right now?",
   ],
+  explore: [
+    "Find companies that could sell data to labs",
+    "What angles should I research next?",
+    "Which visible result has the strongest buyer?",
+    "Turn this search into a startup thesis",
+  ],
   default: [
     "What makes an opportunity worth pursuing?",
     "How do I validate a B2B SaaS idea fast?",
@@ -26,8 +33,9 @@ function ContextBadge({ type }: { type: string | undefined }) {
   if (!type) return null;
   const labels: Record<string, { emoji: string; text: string; cls: string }> = {
     opportunity: { emoji: "📊", text: "Opportunity context", cls: "badge-urgent" },
-    feed:        { emoji: "📡", text: "Feed context", cls: "badge-multi" },
-    demo:        { emoji: "🧪", text: "Demo context", cls: "badge-tam" },
+    feed: { emoji: "📡", text: "Feed context", cls: "badge-multi" },
+    explore: { emoji: "🔎", text: "Explore context", cls: "badge-multi" },
+    demo: { emoji: "🧪", text: "Demo context", cls: "badge-tam" },
   };
   const b = labels[type];
   if (!b) return null;
@@ -38,22 +46,36 @@ function ContextBadge({ type }: { type: string | undefined }) {
   );
 }
 
+function textFromMessage(message: UIMessage): string {
+  return message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
+}
+
 export function AgentSidebar() {
   const { isOpen, setOpen, pageContext } = useAgent();
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [input, setInput] = useState("");
 
   const starters = STARTERS[pageContext?.type ?? "default"] ?? STARTERS.default;
+  const transport = useMemo(() => new DefaultChatTransport({ api: "/api/agent" }), []);
 
-  const { messages, input = "", setInput, append, handleSubmit, status, setMessages } = useChat({
-    api: "/api/agent",
-    body: { context: pageContext ?? undefined },
-    id: pageContext?.type === "opportunity"
-      ? `opp-${(pageContext as { opportunity: { id: string } }).opportunity?.id}`
-      : "global",
+  const { messages, sendMessage, status, setMessages } = useChat({
+    transport,
+    id:
+      pageContext?.type === "opportunity"
+        ? `opp-${(pageContext as { opportunity: { id: string } }).opportunity?.id}`
+        : pageContext?.type === "explore"
+          ? `explore-${pageContext.query ?? "blank"}`
+          : "global",
   });
 
   const isLoading = status === "streaming" || status === "submitted";
+  const contextType = pageContext?.type;
+  const opportunityId =
+    pageContext?.type === "opportunity"
+      ? (pageContext as { opportunity: { id: string } }).opportunity?.id
+      : null;
+  const exploreQuery = pageContext?.type === "explore" ? pageContext.query : null;
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -84,13 +106,7 @@ export function AgentSidebar() {
   // Reset chat when page context changes
   useEffect(() => {
     setMessages([]);
-  }, [
-    pageContext?.type,
-    pageContext?.type === "opportunity"
-      ? (pageContext as { opportunity: { id: string } }).opportunity?.id
-      : null,
-    setMessages,
-  ]);
+  }, [contextType, opportunityId, exploreQuery, setMessages]);
 
   // Focus input when opened
   useEffect(() => {
@@ -101,13 +117,18 @@ export function AgentSidebar() {
     const content = text ?? input.trim();
     if (!content || isLoading) return;
     setInput("");
-    append({ role: "user", content });
+    void sendMessage({ text: content }, { body: { context: pageContext ?? undefined } });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    send();
   };
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e as unknown as React.FormEvent);
+      send();
     }
   };
 
@@ -151,8 +172,15 @@ export function AgentSidebar() {
               className="rounded p-1 text-muted-foreground hover:text-foreground"
               title="Close (Esc)"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              >
                 <path d="M18 6 6 18M6 6l12 12" />
               </svg>
             </button>
@@ -166,8 +194,14 @@ export function AgentSidebar() {
               {(pageContext as { opportunity: { title: string } }).opportunity.title}
             </p>
             <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-              TAM {(pageContext as { opportunity: { tam_estimate: string } }).opportunity.tam_estimate}
-              {" · "}URG {(pageContext as { opportunity: { urgency_score: number } }).opportunity.urgency_score}/10
+              TAM{" "}
+              {(pageContext as { opportunity: { tam_estimate: string } }).opportunity.tam_estimate}
+              {" · "}URG{" "}
+              {
+                (pageContext as { opportunity: { urgency_score: number } }).opportunity
+                  .urgency_score
+              }
+              /10
             </p>
           </div>
         )}
@@ -189,33 +223,36 @@ export function AgentSidebar() {
             </div>
           )}
 
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              {m.role === "assistant" && (
-                <div className="mr-2 mt-1 h-5 w-5 shrink-0 rounded-full bg-gradient-to-br from-primary to-primary-glow flex items-center justify-center">
-                  <span className="text-[9px] font-bold text-white">U</span>
-                </div>
-              )}
+          {messages.map((m) => {
+            const text = textFromMessage(m);
+            return (
               <div
-                className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
-                  m.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "border border-border bg-secondary text-foreground"
-                }`}
+                key={m.id}
+                className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                {m.content || (
-                  <span className="flex gap-1 py-0.5">
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:0ms]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:150ms]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:300ms]" />
-                  </span>
+                {m.role === "assistant" && (
+                  <div className="mr-2 mt-1 h-5 w-5 shrink-0 rounded-full bg-gradient-to-br from-primary to-primary-glow flex items-center justify-center">
+                    <span className="text-[9px] font-bold text-white">U</span>
+                  </div>
                 )}
+                <div
+                  className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                    m.role === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "border border-border bg-secondary text-foreground"
+                  }`}
+                >
+                  {text || (
+                    <span className="flex gap-1 py-0.5">
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:0ms]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:150ms]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:300ms]" />
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           <div ref={bottomRef} />
         </div>
@@ -244,9 +281,18 @@ export function AgentSidebar() {
               disabled={isLoading || !input.trim()}
               className="mb-0.5 rounded-xl bg-primary p-2.5 text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" />
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m22 2-7 20-4-9-9-4Z" />
+                <path d="M22 2 11 13" />
               </svg>
             </button>
           </form>

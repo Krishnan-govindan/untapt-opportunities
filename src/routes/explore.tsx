@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Opportunity } from "@/lib/types";
 import { OpportunityCard } from "@/components/OpportunityCard";
+import { useAgent } from "@/lib/agent-context";
 
 export const Route = createFileRoute("/explore")({
   component: Explore,
@@ -9,21 +10,85 @@ export const Route = createFileRoute("/explore")({
 
 type Phase =
   | { kind: "idle" }
-  | { kind: "running"; messages: string[] }
-  | { kind: "done"; opportunities: Opportunity[]; topic: string }
+  | { kind: "running"; mode: "saved" | "research"; messages: string[] }
+  | {
+      kind: "done";
+      mode: "saved" | "research";
+      opportunities: Opportunity[];
+      topic: string;
+      totalScanned?: number;
+    }
   | { kind: "error"; message: string };
+
+function agentOpportunities(opportunities: Opportunity[]) {
+  return opportunities.slice(0, 8).map((o) => ({
+    id: o.id,
+    title: o.title,
+    pain_summary: o.pain_summary,
+    icp: o.icp,
+    tam_estimate: o.tam_estimate,
+    urgency_score: o.urgency_score,
+    why_now: o.why_now,
+    mvp_features: o.mvp_features,
+  }));
+}
 
 function Explore() {
   const [topic, setTopic] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const { setOpen, setPageContext } = useAgent();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = topic.trim();
     if (!trimmed) return;
 
-    setPhase({ kind: "running", messages: ["Starting search…"] });
+    await searchSaved(trimmed);
+  };
+
+  const searchSaved = async (query: string) => {
+    setPhase({
+      kind: "running",
+      mode: "saved",
+      messages: ["Searching every saved opportunity field…"],
+    });
+
+    try {
+      const params = new URLSearchParams({ q: query, limit: "36" });
+      const res = await fetch(`/api/explore/search?${params.toString()}`);
+      const data = (await res.json().catch(() => ({}))) as {
+        opportunities?: Opportunity[];
+        totalScanned?: number;
+        error?: string;
+      };
+
+      if (!res.ok) {
+        setPhase({ kind: "error", message: data.error ?? "Search failed" });
+        return;
+      }
+
+      setPhase({
+        kind: "done",
+        mode: "saved",
+        opportunities: data.opportunities ?? [],
+        topic: query,
+        totalScanned: data.totalScanned,
+      });
+    } catch (err: unknown) {
+      setPhase({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Network error",
+      });
+    }
+  };
+
+  const runResearch = async (query = topic.trim()) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    setTopic(trimmed);
+    setPhase({ kind: "running", mode: "research", messages: ["Starting web research…"] });
 
     try {
       const res = await fetch("/api/explore", {
@@ -69,13 +134,15 @@ function Explore() {
                   prev.kind === "running"
                     ? {
                         kind: "running",
+                        mode: prev.mode,
                         messages: [...prev.messages, data.message as string],
                       }
-                    : prev
+                    : prev,
                 );
               } else if (currentEvent === "done") {
                 setPhase({
                   kind: "done",
+                  mode: "research",
                   opportunities: data.opportunities as Opportunity[],
                   topic: data.topic as string,
                 });
@@ -102,6 +169,25 @@ function Explore() {
     }
   };
 
+  useEffect(() => {
+    if (phase.kind === "done") {
+      setPageContext({
+        type: "explore",
+        query: phase.topic,
+        mode: phase.mode,
+        resultCount: phase.opportunities.length,
+        opportunities: agentOpportunities(phase.opportunities),
+      });
+      return;
+    }
+
+    if (topic.trim()) {
+      setPageContext({ type: "explore", query: topic.trim() });
+    } else {
+      setPageContext({ type: "explore" });
+    }
+  }, [phase, setPageContext, topic]);
+
   const isRunning = phase.kind === "running";
 
   return (
@@ -112,9 +198,9 @@ function Explore() {
           Explore pain points in any market
         </h1>
         <p className="mt-4 text-base text-muted-foreground max-w-2xl mx-auto">
-          Enter a niche, industry, or product category — we'll search X, Quora,
-          and LinkedIn for real complaints and surface the best unmonetized
-          opportunities.
+          Search all saved opportunities by idea, customer, source, competitor, MVP feature, or
+          plain-language thesis. Then ask the agent to research the companies and angles behind what
+          you find.
         </p>
       </div>
 
@@ -137,10 +223,12 @@ function Explore() {
             {isRunning ? (
               <span className="flex items-center gap-2">
                 <Spinner />
-                Analyzing…
+                {phase.kind === "running" && phase.mode === "research"
+                  ? "Researching…"
+                  : "Searching…"}
               </span>
             ) : (
-              "Analyze market →"
+              "Search all items →"
             )}
           </button>
         </div>
@@ -165,7 +253,9 @@ function Explore() {
             </div>
           )}
           <p className="mt-4 font-mono text-[10px] text-muted-foreground/60">
-            Scraping X, Quora, and LinkedIn — this takes 3–5 minutes…
+            {phase.mode === "research"
+              ? "Scraping X, Quora, and LinkedIn — this takes 3–5 minutes…"
+              : "Scanning titles, pain, ICP, competitors, features, sources, and source snippets…"}
           </p>
         </div>
       )}
@@ -193,7 +283,9 @@ function Explore() {
                 {phase.opportunities.length === 1 ? "y" : "ies"} found
               </h2>
               <p className="text-sm text-muted-foreground">
-                for &ldquo;{phase.topic}&rdquo; — now live on the feed
+                {phase.mode === "saved"
+                  ? `for “${phase.topic}” across ${phase.totalScanned ?? "saved"} items`
+                  : `for “${phase.topic}” — now live on the feed`}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -202,6 +294,28 @@ function Explore() {
                 className="text-xs text-muted-foreground underline hover:text-foreground"
               >
                 Search again
+              </button>
+              <button
+                onClick={() => runResearch(phase.topic)}
+                disabled={isRunning}
+                className="rounded-md border border-border bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/50 hover:text-primary disabled:opacity-50"
+              >
+                Research web
+              </button>
+              <button
+                onClick={() => {
+                  setOpen(true);
+                  setPageContext({
+                    type: "explore",
+                    query: phase.topic,
+                    mode: phase.mode,
+                    resultCount: phase.opportunities.length,
+                    opportunities: agentOpportunities(phase.opportunities),
+                  });
+                }}
+                className="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/15"
+              >
+                Ask agent
               </button>
               <Link
                 to="/"
@@ -214,8 +328,16 @@ function Explore() {
 
           {phase.opportunities.length === 0 ? (
             <div className="rounded-xl border border-border bg-card p-10 text-center text-sm text-muted-foreground">
-              No opportunities were found. Try a more specific niche or
-              different keywords.
+              No saved opportunities matched this search. Run web research to collect fresh signals
+              for this thesis.
+              <div className="mt-4">
+                <button
+                  onClick={() => runResearch(phase.topic)}
+                  className="rounded-md border border-primary/40 bg-primary/10 px-4 py-2 text-xs font-medium text-primary hover:bg-primary/15"
+                >
+                  Research web
+                </button>
+              </div>
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -232,10 +354,11 @@ function Explore() {
         <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center">
           <p className="text-2xl mb-3">🔍</p>
           <p className="text-sm text-muted-foreground">
-            Enter a market above to discover unmonetized pain points
+            Enter anything above to search every saved opportunity
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-2">
             {[
+              "sell data to labs",
               "dental billing",
               "HR onboarding",
               "freight logistics",
@@ -266,14 +389,7 @@ function Spinner({ size = "sm" }: { size?: "sm" | "lg" }) {
       fill="none"
       viewBox="0 0 24 24"
     >
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path
         className="opacity-75"
         fill="currentColor"
