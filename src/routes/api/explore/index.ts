@@ -1,8 +1,8 @@
 import { createAPIFileRoute } from '@tanstack/react-start/api'
-import Anthropic from '@anthropic-ai/sdk'
-import { ApifyClient } from 'apify-client'
 import { createHash } from 'node:crypto'
 import { supabaseAdmin } from '@/integrations/supabase/client.server'
+import type { ApifyClient } from 'apify-client'
+import type Anthropic from '@anthropic-ai/sdk'
 
 // ─── Constants (mirrored from scrape-and-cluster.ts) ─────────────────────────
 
@@ -255,6 +255,9 @@ async function runExplorePipeline(
     send('error', { message: 'Missing APIFY_TOKEN or ANTHROPIC_API_KEY env vars' })
     return
   }
+
+  const { ApifyClient } = await import('apify-client')
+  const { default: Anthropic } = await import('@anthropic-ai/sdk')
 
   const apify = new ApifyClient({ token: apifyToken })
   const anthropic = new Anthropic({ apiKey: anthropicKey })
