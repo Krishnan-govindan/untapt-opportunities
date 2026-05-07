@@ -8,6 +8,7 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { Toaster } from "sonner";
+import { useEffect, useState } from "react";
 
 import appCss from "../styles.css?url";
 import { Header } from "@/components/Header";
@@ -114,6 +115,13 @@ function RootShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ClientOnly({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return <>{children}</>;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
@@ -122,7 +130,7 @@ function RootComponent() {
         <div className="min-h-screen">
           <Header />
           <Outlet />
-          <AgentSidebar />
+          <ClientOnly><AgentSidebar /></ClientOnly>
           <Toaster
           position="top-center"
           theme="dark"
