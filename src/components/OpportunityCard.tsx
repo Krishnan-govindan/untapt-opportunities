@@ -3,6 +3,21 @@ import type { Opportunity } from "@/lib/types";
 import { SourceBadge } from "./SourceBadge";
 import { UrgencyMeter } from "./UrgencyMeter";
 
+function categoryBadges(o: Opportunity) {
+  const badges: { emoji: string; label: string; cls: string }[] = [];
+  if (o.is_hot) badges.push({ emoji: "🔥", label: "Hot", cls: "badge-hot" });
+  if (!o.is_hot && o.urgency_score >= 8)
+    badges.push({ emoji: "⚡", label: "Urgent", cls: "badge-urgent" });
+  if (o.urgency_score <= 3)
+    badges.push({ emoji: "🧊", label: "Early", cls: "badge-early" });
+  const tam = o.tam_estimate ?? "";
+  if (/\$\d.*[BT]/.test(tam) || /billion|trillion/i.test(tam))
+    badges.push({ emoji: "💰", label: "Big TAM", cls: "badge-tam" });
+  if ((o.sources?.length ?? 0) >= 3)
+    badges.push({ emoji: "📡", label: "Multi-signal", cls: "badge-multi" });
+  return badges;
+}
+
 const PLATFORM_TO_SOURCE: Record<string, string> = {
   reddit: "Reddit",
   hackernews: "HN",
@@ -21,9 +36,11 @@ function titleSlug(title: string): string {
   return encodeURIComponent(title.toLowerCase().replace(/\s+/g, "+").slice(0, 40));
 }
 
-function sourceUrlFor(o: Opportunity, displayName: string): string | undefined {
+function sourceUrlFor(o: Opportunity, source: string): string | undefined {
+  // source may be a platform key ("reddit") or a display name ("Reddit")
+  const platform = PLATFORM_TO_SOURCE[source] ? source : Object.entries(PLATFORM_TO_SOURCE).find(([, v]) => v === source)?.[0];
+  const displayName = PLATFORM_TO_SOURCE[source] ?? source;
   if (o.sources_detail?.length) {
-    const platform = Object.entries(PLATFORM_TO_SOURCE).find(([, v]) => v === displayName)?.[0];
     return o.sources_detail.find((s) => s.platform === platform)?.url;
   }
   return FALLBACK_URLS[displayName]?.(titleSlug(o.title));
@@ -45,10 +62,12 @@ export function OpportunityCard({ o }: { o: Opportunity }) {
   const sourceLinks = realLinks.length > 0
     ? realLinks
     : o.sources.slice(0, 2).map((s) => ({
-        url: FALLBACK_URLS[s]?.(titleSlug(o.title)) ?? "",
+        url: FALLBACK_URLS[PLATFORM_TO_SOURCE[s] ?? s]?.(titleSlug(o.title)) ?? "",
         platform: s,
         snippet: "",
       })).filter((s) => s.url);
+
+  const badges = categoryBadges(o);
 
   return (
     <div
@@ -56,17 +75,22 @@ export function OpportunityCard({ o }: { o: Opportunity }) {
         o.is_hot ? "hot-border" : ""
       }`}
     >
+      {/* Category badges row */}
+      {badges.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {badges.map((b) => (
+            <span key={b.label} className={`category-badge ${b.cls}`}>
+              {b.emoji} {b.label}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="flex flex-wrap gap-1.5">
           {o.sources.map((s) => (
             <SourceBadge key={s} source={s} href={sourceUrlFor(o, s)} />
           ))}
         </div>
-        {o.is_hot && (
-          <span className="font-mono text-[10px] uppercase tracking-wider text-primary">
-            ● Hot
-          </span>
-        )}
       </div>
       <h3 className="text-base font-semibold leading-snug text-foreground">
         {o.title}
