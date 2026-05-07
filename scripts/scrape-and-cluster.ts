@@ -184,11 +184,19 @@ function fingerprint(text: string): string {
     .slice(0, 16);
 }
 
+const RESEARCH_DOMAINS = [
+  "ncbi.nlm.nih.gov", "researchgate.net", "pubmed", "arxiv.org",
+  "springer.com", "ieee.org", "sciencedirect.com", "academia.edu",
+  "semanticscholar.org", "jstor.org", "nature.com", "science.org",
+];
+
 function isRelevant(item: RawItem): boolean {
   const text = `${item.title} ${item.content}`.toLowerCase();
   if (POLITICAL_KWS.some((kw) => text.includes(kw))) return false;
   // Reddit: drop low-karma posts (likely spam/trolls)
   if (item.platform === "reddit" && item.score < 2) return false;
+  // Google: drop academic/research papers — we want user complaints, not studies about them
+  if (item.platform === "google" && RESEARCH_DOMAINS.some((d) => item.url.includes(d))) return false;
   return RELEVANCE_KWS.some((kw) => text.includes(kw));
 }
 
@@ -449,7 +457,7 @@ async function upsertOpportunities(
       why_now: o.why_now ?? "",
       competitors: o.competitors ?? [],
       mvp_features: o.mvp_features ?? [],
-      sources: (o.sources ?? []).map((s) => s.url).filter(Boolean),
+      sources: [...new Set((o.sources ?? []).map((s) => s.platform))].filter(Boolean),
       sources_detail: o.sources ?? [],
       is_hot: (o.urgency_score ?? 0) >= 8,
       dedup_hash: fingerprint(o.title),
