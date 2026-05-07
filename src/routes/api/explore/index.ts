@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createHash } from "node:crypto";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { missingServerEnv, serverEnv } from "@/lib/env.server";
 import type { ApifyClient } from "apify-client";
 import type Anthropic from "@anthropic-ai/sdk";
 
@@ -312,12 +313,13 @@ async function runExplorePipeline(
     }
   };
 
-  const apifyToken = process.env.APIFY_TOKEN;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!apifyToken || !anthropicKey) {
-    send("error", { message: "Missing APIFY_TOKEN or ANTHROPIC_API_KEY env vars" });
+  const missing = missingServerEnv(["APIFY_TOKEN", "ANTHROPIC_API_KEY"]);
+  if (missing.length > 0) {
+    send("error", { message: `Missing ${missing.join(" or ")} env vars` });
     return;
   }
+  const apifyToken = serverEnv("APIFY_TOKEN")!;
+  const anthropicKey = serverEnv("ANTHROPIC_API_KEY")!;
 
   const { ApifyClient } = await import("apify-client");
   const { default: Anthropic } = await import("@anthropic-ai/sdk");

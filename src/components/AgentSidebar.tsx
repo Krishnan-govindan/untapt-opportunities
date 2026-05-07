@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { useAgent } from "@/lib/agent-context";
+import { useAgent, type PageContext } from "@/lib/agent-context";
+import type { SourceDetail } from "@/lib/types";
 
 const STARTERS: Record<string, string[]> = {
   opportunity: [
@@ -50,6 +51,112 @@ function textFromMessage(message: UIMessage): string {
   return message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
 }
 
+function storedMessages(chatId: string): UIMessage[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(`untapt-agent:${chatId}`);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as UIMessage[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function storageKey(chatId: string): string {
+  return `untapt-agent:${chatId}`;
+}
+
+function chatIdForContext(pageContext: PageContext | null): string {
+  if (pageContext?.type === "opportunity") return `opp-${pageContext.opportunity.id}`;
+  if (pageContext?.type === "explore") return `explore-${pageContext.query ?? "blank"}`;
+  if (pageContext?.type === "feed") {
+    return `feed-${pageContext.query ?? "all"}-${pageContext.filter ?? "all"}`;
+  }
+  if (pageContext?.type === "demo") return `demo-${pageContext.opportunity.id}`;
+  return "global";
+}
+
+function sourceLabel(source: SourceDetail): string {
+  try {
+    return new URL(source.url).hostname.replace(/^www\./, "");
+  } catch {
+    return source.platform;
+  }
+}
+
+function ResearchSources({ sources }: { sources?: SourceDetail[] }) {
+  const visible = (sources ?? []).filter((source) => source.snippet || source.url).slice(0, 3);
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5">
+      {visible.map((source, index) => (
+        <a
+          key={`${source.url}-${index}`}
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block rounded-md border border-border bg-background/40 px-2 py-1.5 hover:border-primary/40"
+        >
+          <span className="block truncate font-mono text-[9px] text-primary">
+            {sourceLabel(source)}
+          </span>
+          {source.snippet && (
+            <span className="mt-0.5 line-clamp-2 block text-[10px] leading-snug text-muted-foreground">
+              {source.snippet}
+            </span>
+          )}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function ResearchContext({ pageContext }: { pageContext: PageContext | null }) {
+  if (pageContext?.type === "opportunity") {
+    if (!pageContext.opportunity.sources_detail?.length) return null;
+
+    return (
+      <div className="border-b border-border bg-secondary/25 px-4 py-3">
+        <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          Research
+        </p>
+        <ResearchSources sources={pageContext.opportunity.sources_detail} />
+      </div>
+    );
+  }
+
+  if (pageContext?.type !== "explore" || !pageContext.opportunities?.length) return null;
+
+  return (
+    <div className="max-h-72 overflow-y-auto border-b border-border bg-secondary/25 px-4 py-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          Research by idea
+        </p>
+        {typeof pageContext.resultCount === "number" && (
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {pageContext.resultCount} found
+          </span>
+        )}
+      </div>
+      <div className="space-y-3">
+        {pageContext.opportunities.slice(0, 5).map((opportunity) => (
+          <div key={opportunity.id} className="rounded-md border border-border bg-card/60 p-2">
+            <p className="truncate text-xs font-medium text-foreground">{opportunity.title}</p>
+            <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
+              {opportunity.pain_summary}
+            </p>
+            <div className="mt-2">
+              <ResearchSources sources={opportunity.sources_detail} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function AgentSidebar() {
   const { isOpen, setOpen, pageContext } = useAgent();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -58,24 +165,16 @@ export function AgentSidebar() {
 
   const starters = STARTERS[pageContext?.type ?? "default"] ?? STARTERS.default;
   const transport = useMemo(() => new DefaultChatTransport({ api: "/api/agent" }), []);
+  const chatId = chatIdForContext(pageContext);
+  const initialMessages = useMemo(() => storedMessages(chatId), [chatId]);
 
   const { messages, sendMessage, status, setMessages } = useChat({
     transport,
-    id:
-      pageContext?.type === "opportunity"
-        ? `opp-${(pageContext as { opportunity: { id: string } }).opportunity?.id}`
-        : pageContext?.type === "explore"
-          ? `explore-${pageContext.query ?? "blank"}`
-          : "global",
+    id: chatId,
+    messages: initialMessages,
   });
 
   const isLoading = status === "streaming" || status === "submitted";
-  const contextType = pageContext?.type;
-  const opportunityId =
-    pageContext?.type === "opportunity"
-      ? (pageContext as { opportunity: { id: string } }).opportunity?.id
-      : null;
-  const exploreQuery = pageContext?.type === "explore" ? pageContext.query : null;
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -103,10 +202,15 @@ export function AgentSidebar() {
     return () => window.removeEventListener("keydown", handler as EventListener);
   }, [setOpen]);
 
-  // Reset chat when page context changes
+  // Keep chat history persistent per context.
   useEffect(() => {
-    setMessages([]);
-  }, [contextType, opportunityId, exploreQuery, setMessages]);
+    if (typeof window === "undefined") return;
+    if (messages.length === 0) {
+      window.localStorage.removeItem(storageKey(chatId));
+      return;
+    }
+    window.localStorage.setItem(storageKey(chatId), JSON.stringify(messages));
+  }, [chatId, messages]);
 
   // Focus input when opened
   useEffect(() => {
@@ -160,7 +264,12 @@ export function AgentSidebar() {
           <div className="flex items-center gap-2">
             {messages.length > 0 && (
               <button
-                onClick={() => setMessages([])}
+                onClick={() => {
+                  setMessages([]);
+                  if (typeof window !== "undefined") {
+                    window.localStorage.removeItem(storageKey(chatId));
+                  }
+                }}
                 className="rounded px-2 py-1 font-mono text-[10px] text-muted-foreground hover:text-foreground"
                 title="Clear chat"
               >
@@ -191,20 +300,25 @@ export function AgentSidebar() {
         {pageContext?.type === "opportunity" && (
           <div className="border-b border-border bg-secondary/40 px-4 py-2.5">
             <p className="truncate text-xs font-medium text-foreground">
-              {(pageContext as { opportunity: { title: string } }).opportunity.title}
+              {pageContext.opportunity.title}
             </p>
             <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-              TAM{" "}
-              {(pageContext as { opportunity: { tam_estimate: string } }).opportunity.tam_estimate}
-              {" · "}URG{" "}
-              {
-                (pageContext as { opportunity: { urgency_score: number } }).opportunity
-                  .urgency_score
-              }
-              /10
+              TAM {pageContext.opportunity.tam_estimate}
+              {" · "}URG {pageContext.opportunity.urgency_score}/10
             </p>
           </div>
         )}
+
+        {pageContext?.type === "explore" && pageContext.query && (
+          <div className="border-b border-border bg-secondary/40 px-4 py-2.5">
+            <p className="truncate text-xs font-medium text-foreground">{pageContext.query}</p>
+            <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+              {pageContext.mode === "research" ? "web research" : "saved search"}
+            </p>
+          </div>
+        )}
+
+        <ResearchContext pageContext={pageContext} />
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">

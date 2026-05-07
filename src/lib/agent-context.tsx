@@ -25,6 +25,10 @@ export type PageContext =
         | "urgency_score"
         | "why_now"
         | "mvp_features"
+        | "pain_description"
+        | "sources"
+        | "sources_detail"
+        | "competitors"
       >[];
     }
   | { type: "opportunity"; opportunity: Opportunity }

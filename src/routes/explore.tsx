@@ -30,6 +30,10 @@ function agentOpportunities(opportunities: Opportunity[]) {
     urgency_score: o.urgency_score,
     why_now: o.why_now,
     mvp_features: o.mvp_features,
+    pain_description: o.pain_description,
+    sources: o.sources,
+    sources_detail: o.sources_detail,
+    competitors: o.competitors,
   }));
 }
 

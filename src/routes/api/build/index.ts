@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { serverEnv } from "@/lib/env.server";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ async function generateBusinessStrategy(
   opp: Record<string, unknown>,
   startupName: string,
 ): Promise<BusinessContext> {
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const anthropic = new Anthropic({ apiKey: serverEnv("ANTHROPIC_API_KEY") });
 
   const payload = {
     title: opp.title,
@@ -229,7 +230,7 @@ DESIGN RULES:
 - NO external imports. NO React import. Inline Tailwind ONLY.`;
 
 async function generatePageTSX(opp: Record<string, unknown>, strict = false): Promise<string> {
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const anthropic = new Anthropic({ apiKey: serverEnv("ANTHROPIC_API_KEY") });
 
   const strictNote = strict
     ? `CRITICAL: Your previous attempt was invalid. Output ONLY valid TypeScript code.
@@ -364,7 +365,7 @@ async function deployToVercel(
   const res = await fetch("https://api.vercel.com/v13/deployments", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.VERCEL_TOKEN}`,
+      Authorization: `Bearer ${serverEnv("VERCEL_TOKEN")}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -389,7 +390,7 @@ async function pollUntilReady(deploymentId: string): Promise<string> {
   for (let i = 0; i < 36; i++) {
     await sleep(5_000);
     const res = await fetch(`https://api.vercel.com/v13/deployments/${deploymentId}`, {
-      headers: { Authorization: `Bearer ${process.env.VERCEL_TOKEN}` },
+      headers: { Authorization: `Bearer ${serverEnv("VERCEL_TOKEN")}` },
     });
     const data = (await res.json()) as Record<string, unknown>;
     const state = (data.readyState ?? data.state) as string | undefined;
@@ -414,7 +415,8 @@ async function sendEmail(
   opp: Record<string, unknown>,
   context: BusinessContext,
 ): Promise<void> {
-  if (!process.env.RESEND_API_KEY) return;
+  const resendApiKey = serverEnv("RESEND_API_KEY");
+  if (!resendApiKey) return;
 
   const words = startupName.split(/\s+/).filter(Boolean);
   const initials =
@@ -540,7 +542,7 @@ async function sendEmail(
   await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      Authorization: `Bearer ${resendApiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({

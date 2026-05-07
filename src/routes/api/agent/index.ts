@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { anthropic } from "@ai-sdk/anthropic";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { convertToModelMessages, streamText, type UIMessage } from "ai";
+import { serverEnv } from "@/lib/env.server";
 
 function buildSystem(context: Record<string, unknown>): string {
   const base = `You are an expert startup analyst embedded in Untapt — a platform that surfaces unmonetized startup opportunities scraped from Reddit, X, Hacker News, and Product Hunt.
@@ -22,6 +23,7 @@ Why now: ${o.why_now}
 Competitors: ${JSON.stringify(o.competitors)}
 MVP features: ${JSON.stringify(o.mvp_features)}
 Sources: ${JSON.stringify(o.sources)}
+Research evidence: ${JSON.stringify(o.sources_detail)}
 
 Answer questions in the context of THIS opportunity. Keep responses under 180 words unless asked for depth. Lead with insight, not caveats.`;
   }
@@ -57,7 +59,7 @@ The user is in the Explore tab, where they can search all saved opportunity reco
       parts.push(`Top visible opportunities:\n${JSON.stringify(context.opportunities, null, 2)}`);
     }
     parts.push(
-      `Help the user research companies, buyer pain, data/market angles, and startup ideas from this context. If they ask for a company or idea not in the visible results, reason from the search intent and suggest what to investigate next. Keep responses concise unless asked for depth.`,
+      `Help the user research companies, buyer pain, data/market angles, and startup ideas from this context. Use the source snippets and URLs attached to each visible opportunity as research evidence. If they ask for a company or idea not in the visible results, reason from the search intent and suggest what to investigate next. Keep responses concise unless asked for depth.`,
     );
     return parts.join("\n\n");
   }
@@ -73,6 +75,7 @@ export const Route = createFileRoute("/api/agent/")({
           messages: UIMessage[];
           context?: Record<string, unknown>;
         };
+        const anthropic = createAnthropic({ apiKey: serverEnv("ANTHROPIC_API_KEY") });
 
         const result = await streamText({
           model: anthropic("claude-sonnet-4-6"),

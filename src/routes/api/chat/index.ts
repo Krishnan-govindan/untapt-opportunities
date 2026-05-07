@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { serverEnv } from "@/lib/env.server";
 
 function systemPrompt(opportunityJson: string): string {
   return `You are an expert venture analyst helping a founder evaluate this specific opportunity:
@@ -51,7 +52,7 @@ export const Route = createFileRoute("/api/chat/")({
           });
         }
 
-        const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+        const anthropic = new Anthropic({ apiKey: serverEnv("ANTHROPIC_API_KEY") });
 
         const messages: Array<{ role: "user" | "assistant"; content: string }> = [
           ...history.map((h) => ({
