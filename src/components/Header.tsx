@@ -6,19 +6,21 @@ export function Header() {
   const { toggle, isOpen } = useAgent();
 
   const linkCls = (active: boolean) =>
-    `text-sm transition-colors ${
+    `whitespace-nowrap text-xs transition-colors sm:text-sm ${
       active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
     }`;
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="h-5 w-5 rounded-sm bg-gradient-to-br from-primary to-primary-glow" />
-          <span className="font-mono text-sm font-semibold tracking-tight">untapt</span>
+      <div className="mx-auto flex min-h-14 max-w-7xl items-center justify-between gap-3 px-3 py-2 sm:h-14 sm:px-6 sm:py-0">
+        <Link to="/" className="flex shrink-0 items-center gap-2">
+          <div className="h-5 w-5 shrink-0 rounded-sm bg-gradient-to-br from-primary to-primary-glow" />
+          <span className="hidden font-mono text-sm font-semibold tracking-tight sm:inline">
+            untapt
+          </span>
         </Link>
 
-        <nav className="flex items-center gap-6">
+        <nav className="flex min-w-0 flex-1 items-center justify-end gap-3 sm:flex-none sm:gap-6">
           <Link to="/" className={linkCls(location.pathname === "/")}>
             Feed
           </Link>
@@ -34,7 +36,7 @@ export function Header() {
 
           <button
             onClick={toggle}
-            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-all sm:px-3 ${
               isOpen
                 ? "border-primary/60 bg-primary/10 text-primary"
                 : "border-border bg-secondary text-muted-foreground hover:border-primary/40 hover:text-foreground"
