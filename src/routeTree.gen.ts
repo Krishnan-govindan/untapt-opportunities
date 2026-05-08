@@ -21,6 +21,8 @@ import { Route as ApiExploreIndexRouteImport } from './routes/api/explore/index'
 import { Route as ApiChatIndexRouteImport } from './routes/api/chat/index'
 import { Route as ApiBuildIndexRouteImport } from './routes/api/build/index'
 import { Route as ApiAgentIndexRouteImport } from './routes/api/agent/index'
+import { Route as ApiGuestPrototypesRouteImport } from './routes/api/guest/prototypes'
+import { Route as ApiGuestIdeasRouteImport } from './routes/api/guest/ideas'
 import { Route as ApiExploreSearchRouteImport } from './routes/api/explore/search'
 import { Route as ApiBuildStatusRouteImport } from './routes/api/build/status'
 
@@ -84,6 +86,16 @@ const ApiAgentIndexRoute = ApiAgentIndexRouteImport.update({
   path: '/api/agent/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGuestPrototypesRoute = ApiGuestPrototypesRouteImport.update({
+  id: '/api/guest/prototypes',
+  path: '/api/guest/prototypes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGuestIdeasRoute = ApiGuestIdeasRouteImport.update({
+  id: '/api/guest/ideas',
+  path: '/api/guest/ideas',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiExploreSearchRoute = ApiExploreSearchRouteImport.update({
   id: '/api/explore/search',
   path: '/api/explore/search',
@@ -106,6 +118,8 @@ export interface FileRoutesByFullPath {
   '/opportunity/$id': typeof OpportunityIdRoute
   '/api/build/status': typeof ApiBuildStatusRoute
   '/api/explore/search': typeof ApiExploreSearchRoute
+  '/api/guest/ideas': typeof ApiGuestIdeasRoute
+  '/api/guest/prototypes': typeof ApiGuestPrototypesRoute
   '/api/agent/': typeof ApiAgentIndexRoute
   '/api/build/': typeof ApiBuildIndexRoute
   '/api/chat/': typeof ApiChatIndexRoute
@@ -122,6 +136,8 @@ export interface FileRoutesByTo {
   '/opportunity/$id': typeof OpportunityIdRoute
   '/api/build/status': typeof ApiBuildStatusRoute
   '/api/explore/search': typeof ApiExploreSearchRoute
+  '/api/guest/ideas': typeof ApiGuestIdeasRoute
+  '/api/guest/prototypes': typeof ApiGuestPrototypesRoute
   '/api/agent': typeof ApiAgentIndexRoute
   '/api/build': typeof ApiBuildIndexRoute
   '/api/chat': typeof ApiChatIndexRoute
@@ -139,6 +155,8 @@ export interface FileRoutesById {
   '/opportunity/$id': typeof OpportunityIdRoute
   '/api/build/status': typeof ApiBuildStatusRoute
   '/api/explore/search': typeof ApiExploreSearchRoute
+  '/api/guest/ideas': typeof ApiGuestIdeasRoute
+  '/api/guest/prototypes': typeof ApiGuestPrototypesRoute
   '/api/agent/': typeof ApiAgentIndexRoute
   '/api/build/': typeof ApiBuildIndexRoute
   '/api/chat/': typeof ApiChatIndexRoute
@@ -157,6 +175,8 @@ export interface FileRouteTypes {
     | '/opportunity/$id'
     | '/api/build/status'
     | '/api/explore/search'
+    | '/api/guest/ideas'
+    | '/api/guest/prototypes'
     | '/api/agent/'
     | '/api/build/'
     | '/api/chat/'
@@ -173,6 +193,8 @@ export interface FileRouteTypes {
     | '/opportunity/$id'
     | '/api/build/status'
     | '/api/explore/search'
+    | '/api/guest/ideas'
+    | '/api/guest/prototypes'
     | '/api/agent'
     | '/api/build'
     | '/api/chat'
@@ -189,6 +211,8 @@ export interface FileRouteTypes {
     | '/opportunity/$id'
     | '/api/build/status'
     | '/api/explore/search'
+    | '/api/guest/ideas'
+    | '/api/guest/prototypes'
     | '/api/agent/'
     | '/api/build/'
     | '/api/chat/'
@@ -205,6 +229,8 @@ export interface RootRouteChildren {
   OpportunityIdRoute: typeof OpportunityIdRoute
   ApiBuildStatusRoute: typeof ApiBuildStatusRoute
   ApiExploreSearchRoute: typeof ApiExploreSearchRoute
+  ApiGuestIdeasRoute: typeof ApiGuestIdeasRoute
+  ApiGuestPrototypesRoute: typeof ApiGuestPrototypesRoute
   ApiAgentIndexRoute: typeof ApiAgentIndexRoute
   ApiBuildIndexRoute: typeof ApiBuildIndexRoute
   ApiChatIndexRoute: typeof ApiChatIndexRoute
@@ -297,6 +323,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/guest/prototypes': {
+      id: '/api/guest/prototypes'
+      path: '/api/guest/prototypes'
+      fullPath: '/api/guest/prototypes'
+      preLoaderRoute: typeof ApiGuestPrototypesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/guest/ideas': {
+      id: '/api/guest/ideas'
+      path: '/api/guest/ideas'
+      fullPath: '/api/guest/ideas'
+      preLoaderRoute: typeof ApiGuestIdeasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/explore/search': {
       id: '/api/explore/search'
       path: '/api/explore/search'
@@ -334,6 +374,8 @@ const rootRouteChildren: RootRouteChildren = {
   OpportunityIdRoute: OpportunityIdRoute,
   ApiBuildStatusRoute: ApiBuildStatusRoute,
   ApiExploreSearchRoute: ApiExploreSearchRoute,
+  ApiGuestIdeasRoute: ApiGuestIdeasRoute,
+  ApiGuestPrototypesRoute: ApiGuestPrototypesRoute,
   ApiAgentIndexRoute: ApiAgentIndexRoute,
   ApiBuildIndexRoute: ApiBuildIndexRoute,
   ApiChatIndexRoute: ApiChatIndexRoute,

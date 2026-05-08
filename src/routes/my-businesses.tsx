@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAuth, useRequireAuth } from "@/lib/require-auth";
+import { GuestEmailDialog } from "@/components/GuestEmailDialog";
 
 export const Route = createFileRoute("/my-businesses")({
   beforeLoad: async () => { await requireAuth("/my-businesses"); },
@@ -96,24 +97,49 @@ function PrototypeCard({ proto }: { proto: Prototype }) {
 }
 
 function MyBusinessesPage() {
-  const { loading: authLoading, user } = useRequireAuth("/my-businesses");
+  const { loading: authLoading, user, isGuest, guestId, guestEmail, setGuestEmail } =
+    useRequireAuth("/my-businesses");
   const [prototypes, setPrototypes] = useState<Prototype[]>([]);
   const [loading, setLoading] = useState(true);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("prototypes")
-      .select("id, name, status, thumbnail_url, deployed_url, created_at, opportunity_id")
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) toast.error("Couldn't load prototypes");
-        else setPrototypes((data ?? []) as Prototype[]);
-        setLoading(false);
-      });
-  }, [user]);
+    if (authLoading) return;
+    if (user) {
+      supabase
+        .from("prototypes")
+        .select("id, name, status, thumbnail_url, deployed_url, created_at, opportunity_id")
+        .order("created_at", { ascending: false })
+        .then(({ data, error }) => {
+          if (error) toast.error("Couldn't load prototypes");
+          else setPrototypes((data ?? []) as Prototype[]);
+          setLoading(false);
+        });
+      return;
+    }
 
-  if (authLoading || !user) {
+    if (isGuest && guestId && guestEmail) {
+      fetch(`/api/guest/prototypes?${new URLSearchParams({ guest_id: guestId, email: guestEmail })}`)
+        .then((res) => res.json())
+        .then((data: { prototypes?: Prototype[]; error?: string }) => {
+          if (data.error) toast.error(data.error);
+          setPrototypes(data.prototypes ?? []);
+          setLoading(false);
+        })
+        .catch(() => {
+          toast.error("Couldn't load guest prototypes");
+          setLoading(false);
+        });
+      return;
+    }
+
+    if (isGuest) {
+      setLoading(false);
+      setEmailDialogOpen(true);
+    }
+  }, [authLoading, guestEmail, guestId, isGuest, user]);
+
+  if (authLoading || (!user && !isGuest)) {
     return (
       <main className="flex min-h-[calc(100vh-56px)] items-center justify-center px-6">
         <div className="text-sm text-muted-foreground">Redirecting to sign in...</div>
@@ -130,6 +156,14 @@ function MyBusinessesPage() {
           Every prototype and startup demo you've built — your personal portfolio of ideas in
           motion.
         </p>
+        {isGuest && (
+          <button
+            onClick={() => setEmailDialogOpen(true)}
+            className="mt-4 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-2 text-sm font-medium text-orange-300 hover:bg-orange-500/15 transition-colors"
+          >
+            {guestEmail ? `Guest: ${guestEmail}` : "Add email to load guest businesses"}
+          </button>
+        )}
       </div>
 
       {/* Loading */}
@@ -167,6 +201,17 @@ function MyBusinessesPage() {
           </Link>
         </div>
       )}
+      <GuestEmailDialog
+        open={emailDialogOpen}
+        initialEmail={guestEmail}
+        title="Find your guest businesses"
+        description="Enter the email you used for guest mode so we can show prototypes linked to it."
+        onOpenChange={setEmailDialogOpen}
+        onSubmit={(email) => {
+          setGuestEmail(email);
+          setLoading(true);
+        }}
+      />
     </main>
   );
 }

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
@@ -9,6 +9,7 @@ import type { UserIdea, IdeaFile, Opportunity } from "@/lib/types";
 import { IDEA_CATEGORIES } from "@/lib/types";
 import { OpportunityCard } from "@/components/OpportunityCard";
 import { BuildPrototypeModal } from "@/components/BuildPrototypeModal";
+import { GuestEmailDialog } from "@/components/GuestEmailDialog";
 
 export const Route = createFileRoute("/studio")({
   beforeLoad: async () => { await requireAuth("/studio"); },
@@ -60,12 +61,15 @@ function categoryColor(cat: string) {
 // ── New Idea Form ─────────────────────────────────────────────────────────────
 
 function NewIdeaForm({
-  userId,
-  onCreated,
+  onSubmit,
   onCancel,
 }: {
-  userId: string;
-  onCreated: (idea: UserIdea) => void;
+  onSubmit: (draft: {
+    title: string;
+    description: string;
+    category: string;
+    video_url: string | null;
+  }) => Promise<void>;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState("");
@@ -74,27 +78,17 @@ function NewIdeaForm({
   const [videoUrl, setVideoUrl] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
     setSaving(true);
-    const { data, error } = await supabase
-      .from("user_ideas")
-      .insert({
-        user_id: userId,
+    await onSubmit({
         title: title.trim(),
         description: description.trim(),
         category,
         video_url: videoUrl.trim() || null,
-      })
-      .select()
-      .single();
+    });
     setSaving(false);
-    if (error) {
-      toast.error(error.message);
-    } else {
-      onCreated(data as unknown as UserIdea);
-    }
   };
 
   return (
@@ -161,11 +155,19 @@ function NewIdeaForm({
 function IdeaCard({
   idea,
   userId,
+  ownerEmail,
+  guestId,
+  isGuest,
+  onNeedEmail,
   onUpdate,
   onDelete,
 }: {
   idea: UserIdea;
-  userId: string;
+  userId: string | null;
+  ownerEmail: string | null;
+  guestId: string | null;
+  isGuest: boolean;
+  onNeedEmail: () => void;
   onUpdate: (updated: UserIdea) => void;
   onDelete: (id: string) => void;
 }) {
@@ -180,6 +182,10 @@ function IdeaCard({
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (isGuest || !userId) {
+      toast.error("Sign in to upload files");
+      return;
+    }
     setUploadingFile(true);
     const path = `${userId}/${idea.id}/${Date.now()}-${file.name}`;
     const { error } = await supabase.storage.from("user-files").upload(path, file);
@@ -205,6 +211,7 @@ function IdeaCard({
   };
 
   const handleRemoveFile = async (filePath: string) => {
+    if (isGuest) return;
     await supabase.storage.from("user-files").remove([filePath]);
     const newFiles = idea.files.filter((f) => f.path !== filePath);
     await supabase.from("user_ideas").update({ files: newFiles as unknown as Json }).eq("id", idea.id);
@@ -222,10 +229,28 @@ function IdeaCard({
         return;
       }
       const results = data.opportunities ?? [];
-      await supabase
-        .from("user_ideas")
-        .update({ research_results: results as unknown as Json })
-        .eq("id", idea.id);
+      if (isGuest) {
+        if (!ownerEmail || !guestId) {
+          onNeedEmail();
+          return;
+        }
+        const updateRes = await fetch("/api/guest/ideas", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: idea.id,
+            owner_email: ownerEmail,
+            guest_id: guestId,
+            research_results: results as unknown as Json,
+          }),
+        });
+        if (!updateRes.ok) throw new Error("Research saved locally, but couldn't update guest idea");
+      } else {
+        await supabase
+          .from("user_ideas")
+          .update({ research_results: results as unknown as Json })
+          .eq("id", idea.id);
+      }
       onUpdate({ ...idea, research_results: results });
       setResearchOpen(true);
       toast.success(`Found ${results.length} related opportunities`);
@@ -250,10 +275,23 @@ function IdeaCard({
   const handleDelete = async () => {
     if (!confirm(`Delete "${idea.title}"?`)) return;
     setDeleting(true);
-    if (idea.files.length > 0) {
+    if (!isGuest && idea.files.length > 0) {
       await supabase.storage.from("user-files").remove(idea.files.map((f) => f.path));
     }
-    await supabase.from("user_ideas").delete().eq("id", idea.id);
+    if (isGuest) {
+      if (!ownerEmail || !guestId) {
+        onNeedEmail();
+        setDeleting(false);
+        return;
+      }
+      await fetch("/api/guest/ideas", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: idea.id, owner_email: ownerEmail, guest_id: guestId }),
+      });
+    } else {
+      await supabase.from("user_ideas").delete().eq("id", idea.id);
+    }
     onDelete(idea.id);
   };
 
@@ -324,24 +362,32 @@ function IdeaCard({
                   <path d="M13 2v7h7" />
                 </svg>
                 <span className="max-w-[100px] truncate">{f.name}</span>
-                <button
-                  onClick={() => handleRemoveFile(f.path)}
-                  className="ml-1 text-muted-foreground hover:text-foreground"
-                >
-                  ×
-                </button>
+                {!isGuest && (
+                  <button
+                    onClick={() => handleRemoveFile(f.path)}
+                    className="ml-1 text-muted-foreground hover:text-foreground"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             ))}
-            <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="sr-only"
-                onChange={handleFileUpload}
-                disabled={uploadingFile}
-              />
-              {uploadingFile ? "Uploading…" : "+ Attach file"}
-            </label>
+            {isGuest ? (
+              <span className="rounded-lg border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground">
+                Sign in to upload files
+              </span>
+            ) : (
+              <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="sr-only"
+                  onChange={handleFileUpload}
+                  disabled={uploadingFile}
+                />
+                {uploadingFile ? "Uploading…" : "+ Attach file"}
+              </label>
+            )}
           </div>
         </div>
 
@@ -429,24 +475,54 @@ function IdeaCard({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 function StudioPage() {
-  const { loading: authLoading, user } = useRequireAuth("/studio");
+  const { loading: authLoading, user, isGuest, guestId, guestEmail, setGuestEmail } = useRequireAuth("/studio");
   const { setPageContext } = useAgent();
   const [ideas, setIdeas] = useState<UserIdea[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<{
+    title: string;
+    description: string;
+    category: string;
+    video_url: string | null;
+  } | null>(null);
 
   useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("user_ideas")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) toast.error("Couldn't load ideas");
-        else setIdeas((data ?? []) as unknown as UserIdea[]);
-        setLoading(false);
-      });
-  }, [user]);
+    if (authLoading) return;
+    if (user) {
+      supabase
+        .from("user_ideas")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .then(({ data, error }) => {
+          if (error) toast.error("Couldn't load ideas");
+          else setIdeas((data ?? []) as unknown as UserIdea[]);
+          setLoading(false);
+        });
+      return;
+    }
+
+    if (isGuest && guestId && guestEmail) {
+      fetch(`/api/guest/ideas?${new URLSearchParams({ guest_id: guestId, email: guestEmail })}`)
+        .then((res) => res.json())
+        .then((data: { ideas?: UserIdea[]; error?: string }) => {
+          if (data.error) toast.error(data.error);
+          setIdeas(data.ideas ?? []);
+          setLoading(false);
+        })
+        .catch(() => {
+          toast.error("Couldn't load guest ideas");
+          setLoading(false);
+        });
+      return;
+    }
+
+    if (isGuest) {
+      setIdeas([]);
+      setLoading(false);
+    }
+  }, [authLoading, guestEmail, guestId, isGuest, user]);
 
   useEffect(() => {
     setPageContext({ type: "explore", query: "studio workspace", mode: "saved" });
@@ -458,6 +534,74 @@ function StudioPage() {
     toast.success("Idea saved!");
   };
 
+  const saveSignedInIdea = async (draft: {
+    title: string;
+    description: string;
+    category: string;
+    video_url: string | null;
+  }) => {
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("user_ideas")
+      .insert({
+        user_id: user.id,
+        owner_type: "auth",
+        owner_email: user.email ?? null,
+        title: draft.title,
+        description: draft.description,
+        category: draft.category,
+        video_url: draft.video_url,
+      })
+      .select()
+      .single();
+
+    if (error) toast.error(error.message);
+    else handleCreated(data as unknown as UserIdea);
+  };
+
+  const saveGuestIdea = async (
+    draft: {
+      title: string;
+      description: string;
+      category: string;
+      video_url: string | null;
+    },
+    email: string,
+  ) => {
+    if (!guestId) return;
+    const res = await fetch("/api/guest/ideas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...draft, owner_email: email, guest_id: guestId }),
+    });
+    const data = (await res.json()) as { idea?: UserIdea; error?: string };
+    if (!res.ok || data.error || !data.idea) {
+      toast.error(data.error ?? "Couldn't save guest idea");
+      return;
+    }
+    handleCreated(data.idea);
+  };
+
+  const handleSubmitIdea = async (draft: {
+    title: string;
+    description: string;
+    category: string;
+    video_url: string | null;
+  }) => {
+    if (user) {
+      await saveSignedInIdea(draft);
+      return;
+    }
+
+    if (!guestEmail) {
+      setPendingDraft(draft);
+      setEmailDialogOpen(true);
+      return;
+    }
+
+    await saveGuestIdea(draft, guestEmail);
+  };
+
   const handleUpdate = (updated: UserIdea) => {
     setIdeas((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
   };
@@ -467,7 +611,7 @@ function StudioPage() {
     toast.success("Idea deleted");
   };
 
-  if (authLoading || !user) {
+  if (authLoading || (!user && !isGuest)) {
     return (
       <main className="flex min-h-[calc(100vh-56px)] items-center justify-center px-6">
         <div className="text-sm text-muted-foreground">Redirecting to sign in...</div>
@@ -484,8 +628,8 @@ function StudioPage() {
             Your Idea Studio
           </h1>
           <p className="mt-3 max-w-2xl text-base text-muted-foreground">
-            Capture business ideas, upload files, research the market, and launch your prototype
-            — all in one private workspace.
+            Capture business ideas, save video links, research the market, and launch your
+            prototype. Guests can start with an email; file uploads need sign-in.
           </p>
         </div>
         {!creating && (
@@ -501,8 +645,7 @@ function StudioPage() {
       {/* New idea form */}
       {creating && (
         <NewIdeaForm
-          userId={user.id}
-          onCreated={handleCreated}
+          onSubmit={handleSubmitIdea}
           onCancel={() => setCreating(false)}
         />
       )}
@@ -523,7 +666,11 @@ function StudioPage() {
             <IdeaCard
               key={idea.id}
               idea={idea}
-              userId={user.id}
+              userId={user?.id ?? null}
+              ownerEmail={user?.email ?? guestEmail}
+              guestId={guestId}
+              isGuest={isGuest}
+              onNeedEmail={() => setEmailDialogOpen(true)}
               onUpdate={handleUpdate}
               onDelete={handleDelete}
             />
@@ -547,6 +694,20 @@ function StudioPage() {
           </button>
         </div>
       )}
+      <GuestEmailDialog
+        open={emailDialogOpen}
+        initialEmail={guestEmail}
+        title="Save your ideas by email"
+        description="No password needed. We'll use this email to keep your guest ideas and prototypes together."
+        onOpenChange={setEmailDialogOpen}
+        onSubmit={(email) => {
+          setGuestEmail(email);
+          if (pendingDraft) {
+            void saveGuestIdea(pendingDraft, email);
+            setPendingDraft(null);
+          }
+        }}
+      />
     </main>
   );
 }

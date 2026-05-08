@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { GuestEmailDialog } from "@/components/GuestEmailDialog";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -87,8 +88,9 @@ export function BuildPrototypeModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { session, user } = useAuth();
+  const { session, user, isGuest, guestId, guestEmail, setGuestEmail } = useAuth();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const handleClose = () => {
     if (readerRef.current) {
@@ -113,13 +115,20 @@ export function BuildPrototypeModal({
     }
   };
 
-  const handleSubmit = async () => {
+  const startBuild = async (emailOverride?: string) => {
     setPhase({ kind: "running", step: "researching", message: "Starting build…" });
 
     // Try real API; fall back to simulation on any failure
     try {
-      if (!session?.access_token) {
-        setPhase({ kind: "error", message: "Please sign in to build a private prototype." });
+      if (!session?.access_token && !isGuest) {
+        setPhase({ kind: "error", message: "Please sign in or continue as a guest first." });
+        return;
+      }
+
+      const email = emailOverride ?? user?.email ?? guestEmail ?? "";
+      if (isGuest && (!email || !guestId)) {
+        setPhase({ kind: "idle" });
+        setEmailDialogOpen(true);
         return;
       }
 
@@ -127,9 +136,13 @@ export function BuildPrototypeModal({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ opportunity_id: opportunity.id, email: user?.email ?? "" }),
+        body: JSON.stringify({
+          opportunity_id: opportunity.id,
+          email,
+          guest_id: isGuest ? guestId : undefined,
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -177,6 +190,10 @@ export function BuildPrototypeModal({
     } finally {
       readerRef.current = null;
     }
+  };
+
+  const handleSubmit = async () => {
+    await startBuild();
   };
 
   const openDemo = (path: string) => {
@@ -274,6 +291,17 @@ export function BuildPrototypeModal({
           </div>
         )}
       </DialogContent>
+      <GuestEmailDialog
+        open={emailDialogOpen}
+        initialEmail={guestEmail}
+        title="Where should we send this prototype?"
+        description="Enter an email so this guest prototype can be linked back to you."
+        onOpenChange={setEmailDialogOpen}
+        onSubmit={(email) => {
+          setGuestEmail(email);
+          void startBuild(email);
+        }}
+      />
     </Dialog>
   );
 }

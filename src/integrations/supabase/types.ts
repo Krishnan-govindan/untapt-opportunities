@@ -44,7 +44,10 @@ export type Database = {
       prototypes: {
         Row: {
           id: string
-          user_id: string
+          user_id: string | null
+          owner_email: string | null
+          guest_id: string | null
+          owner_type: string
           opportunity_id: string
           name: string
           thumbnail_url: string | null
@@ -56,7 +59,10 @@ export type Database = {
         }
         Insert: {
           id?: string
-          user_id: string
+          user_id?: string | null
+          owner_email?: string | null
+          guest_id?: string | null
+          owner_type?: string
           opportunity_id: string
           name: string
           thumbnail_url?: string | null
@@ -68,7 +74,10 @@ export type Database = {
         }
         Update: {
           id?: string
-          user_id?: string
+          user_id?: string | null
+          owner_email?: string | null
+          guest_id?: string | null
+          owner_type?: string
           opportunity_id?: string
           name?: string
           thumbnail_url?: string | null
@@ -83,7 +92,10 @@ export type Database = {
       user_ideas: {
         Row: {
           id: string
-          user_id: string
+          user_id: string | null
+          owner_email: string | null
+          guest_id: string | null
+          owner_type: string
           title: string
           description: string
           category: string
@@ -96,7 +108,10 @@ export type Database = {
         }
         Insert: {
           id?: string
-          user_id: string
+          user_id?: string | null
+          owner_email?: string | null
+          guest_id?: string | null
+          owner_type?: string
           title: string
           description?: string
           category?: string
@@ -109,7 +124,10 @@ export type Database = {
         }
         Update: {
           id?: string
-          user_id?: string
+          user_id?: string | null
+          owner_email?: string | null
+          guest_id?: string | null
+          owner_type?: string
           title?: string
           description?: string
           category?: string

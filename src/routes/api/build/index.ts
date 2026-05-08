@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { serverEnv } from "@/lib/env.server";
+import { guestIdentityFromValues } from "@/lib/guest.server";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -560,7 +561,9 @@ async function runPipeline(
   writer: WritableStreamDefaultWriter<Uint8Array>,
   opportunityId: string,
   email: string,
-  userId: string,
+  userId: string | null,
+  ownerType: "auth" | "guest",
+  guestId?: string | null,
 ): Promise<void> {
   const enc = new TextEncoder();
   const send = (event: string, data: object) => {
@@ -581,6 +584,9 @@ async function runPipeline(
       .from("prototypes")
       .insert({
         user_id: userId,
+        owner_type: ownerType,
+        owner_email: email || null,
+        guest_id: guestId ?? null,
         opportunity_id: opportunityId,
         name: "Generating…",
         email,
@@ -732,7 +738,7 @@ export const Route = createFileRoute("/api/build/")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        let body: { opportunity_id?: string; email?: string };
+        let body: { opportunity_id?: string; email?: string; guest_id?: string };
         try {
           body = (await request.json()) as typeof body;
         } catch {
@@ -744,26 +750,8 @@ export const Route = createFileRoute("/api/build/")({
 
         const authHeader = request.headers.get("authorization");
         const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
-        if (!token) {
-          return new Response(JSON.stringify({ error: "Authentication is required" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-
-        const {
-          data: { user },
-          error: userErr,
-        } = await supabaseAdmin.auth.getUser(token);
-        if (userErr || !user) {
-          return new Response(JSON.stringify({ error: "Invalid authentication token" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
 
         const { opportunity_id } = body;
-        const email = body.email?.trim() || user.email || "";
         if (!opportunity_id) {
           return new Response(JSON.stringify({ error: "opportunity_id is required" }), {
             status: 400,
@@ -771,10 +759,41 @@ export const Route = createFileRoute("/api/build/")({
           });
         }
 
+        let userId: string | null = null;
+        let ownerType: "auth" | "guest" = "guest";
+        let guestId: string | null = null;
+        let email = body.email?.trim().toLowerCase() ?? "";
+
+        if (token) {
+          const {
+            data: { user },
+            error: userErr,
+          } = await supabaseAdmin.auth.getUser(token);
+          if (userErr || !user) {
+            return new Response(JSON.stringify({ error: "Invalid authentication token" }), {
+              status: 401,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          userId = user.id;
+          ownerType = "auth";
+          email = email || user.email || "";
+        } else {
+          const guestIdentity = guestIdentityFromValues(email, body.guest_id);
+          if (!guestIdentity) {
+            return new Response(JSON.stringify({ error: "Valid guest email is required" }), {
+              status: 401,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          email = guestIdentity.email;
+          guestId = guestIdentity.guestId;
+        }
+
         const { writable, readable } = new TransformStream<Uint8Array, Uint8Array>();
         const writer = writable.getWriter();
 
-        runPipeline(writer, opportunity_id, email, user.id).catch(async (err: unknown) => {
+        runPipeline(writer, opportunity_id, email, userId, ownerType, guestId).catch(async (err: unknown) => {
           const enc = new TextEncoder();
           const msg = err instanceof Error ? err.message : "Internal error";
           try {

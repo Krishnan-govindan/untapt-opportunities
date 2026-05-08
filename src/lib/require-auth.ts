@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 
 export async function requireAuth(currentPath: string) {
   if (typeof window === "undefined") return;
+  if (window.localStorage.getItem("untapt-guest-active:v1") === "true") return;
   const { data } = await supabase.auth.getSession();
   if (!data.session) {
     throw redirect({ to: "/auth", search: { redirect: currentPath } });
@@ -14,14 +15,14 @@ export async function requireAuth(currentPath: string) {
 }
 
 export function useRequireAuth(currentPath: string) {
-  const { loading, user } = useAuth();
+  const { loading, user, isGuest, guestId, guestEmail, setGuestEmail } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && !user && !isGuest) {
       navigate({ to: "/auth", search: { redirect: currentPath }, replace: true });
     }
-  }, [currentPath, loading, navigate, user]);
+  }, [currentPath, isGuest, loading, navigate, user]);
 
-  return { loading, user };
+  return { loading, user, isGuest, guestId, guestEmail, setGuestEmail };
 }

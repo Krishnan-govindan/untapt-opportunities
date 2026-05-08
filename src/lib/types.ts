@@ -30,7 +30,10 @@ export type IdeaFile = {
 
 export type UserIdea = {
   id: string;
-  user_id: string;
+  user_id: string | null;
+  owner_email: string | null;
+  guest_id: string | null;
+  owner_type: "auth" | "guest";
   title: string;
   description: string;
   category: string;

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
 
 const authSearchSchema = z.object({
   redirect: z.string().optional(),
@@ -18,6 +19,7 @@ type Mode = "login" | "signup" | "forgot";
 function AuthPage() {
   const navigate = useNavigate();
   const { redirect } = Route.useSearch();
+  const { continueAsGuest } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,6 +28,11 @@ function AuthPage() {
 
   const handleSuccess = () => {
     navigate({ to: redirect ?? "/" });
+  };
+
+  const handleGuestContinue = () => {
+    continueAsGuest();
+    handleSuccess();
   };
 
   const handleGoogleSignIn = async () => {
@@ -150,6 +157,13 @@ function AuthPage() {
                     />
                   </svg>
                   Continue with Google
+                </button>
+
+                <button
+                  onClick={handleGuestContinue}
+                  className="mt-3 flex w-full items-center justify-center rounded-xl border border-orange-500/40 bg-orange-500/10 py-2.5 text-sm font-medium text-orange-300 hover:bg-orange-500/15 transition-colors"
+                >
+                  Continue without sign-in
                 </button>
 
                 <div className="relative my-5">
