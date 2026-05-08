@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { requireAuth, useRequireAuth } from "@/lib/require-auth";
 import { GuestEmailDialog } from "@/components/GuestEmailDialog";
+import type { UserIdea } from "@/lib/types";
 
 export const Route = createFileRoute("/my-businesses")({
   beforeLoad: async () => {
@@ -22,6 +23,11 @@ type Prototype = {
   opportunity_id: string | null;
   source_type: "opportunity" | "idea" | string;
   source_idea_id: string | null;
+};
+
+type BusinessCardItem = {
+  idea: UserIdea;
+  prototype: Prototype | null;
 };
 
 function formatDate(iso: string) {
@@ -57,6 +63,17 @@ function initials(name: string) {
     .join("");
 }
 
+function ideaMetrics(idea: UserIdea) {
+  const signals = idea.research_results ?? [];
+  const urgency = signals.length
+    ? Math.max(...signals.map((signal) => signal.urgency_score ?? 0), 5)
+    : 5;
+  const tam =
+    signals.find((signal) => signal.tam_estimate && signal.tam_estimate !== "TBD")?.tam_estimate ??
+    "TBD";
+  return { urgency, tam, signalCount: signals.length };
+}
+
 const ACTIVE_STATUSES = new Set([
   "researching",
   "strategizing",
@@ -74,6 +91,16 @@ function shouldShowPrototype(proto: Prototype) {
   const createdAt = new Date(proto.created_at).getTime();
   if (Number.isNaN(createdAt)) return false;
   return Date.now() - createdAt < STALE_BUILD_MS;
+}
+
+function joinIdeasWithPrototypes(ideas: UserIdea[], prototypes: Prototype[]): BusinessCardItem[] {
+  return ideas.map((idea) => ({
+    idea,
+    prototype:
+      prototypes.find((prototype) => prototype.source_idea_id === idea.id && prototype.deployed_url) ??
+      prototypes.find((prototype) => prototype.source_idea_id === idea.id) ??
+      null,
+  }));
 }
 
 function PrototypeCard({ proto }: { proto: Prototype }) {
@@ -128,6 +155,69 @@ function PrototypeCard({ proto }: { proto: Prototype }) {
   );
 }
 
+function BusinessIdeaCard({ item }: { item: BusinessCardItem }) {
+  const { idea, prototype } = item;
+  const metrics = ideaMetrics(idea);
+
+  return (
+    <div className="glow-hover relative flex flex-col rounded-xl border border-border bg-card p-5 hover:border-primary/30 transition-colors">
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+          {idea.category}
+        </span>
+        {metrics.signalCount > 0 && (
+          <span className="category-badge badge-multi">📡 Researched</span>
+        )}
+        {prototype?.deployed_url && <span className="category-badge badge-tam">🚀 Live</span>}
+      </div>
+
+      <h3 className="text-base font-semibold leading-snug text-foreground">{idea.title}</h3>
+      <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">
+        {idea.description || "Private business idea ready for research and prototyping."}
+      </p>
+
+      <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="font-mono text-xs text-foreground">{metrics.tam}</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="font-mono text-xs text-muted-foreground">
+            URG <span className="text-foreground">{metrics.urgency}</span>
+          </span>
+          <span className="text-muted-foreground">·</span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {metrics.signalCount} signal{metrics.signalCount === 1 ? "" : "s"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Link
+          to="/business/$id"
+          params={{ id: idea.id }}
+          className="rounded-md border border-border bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/50 hover:text-primary"
+        >
+          View
+        </Link>
+        {prototype?.deployed_url && (
+          <a
+            href={prototype.deployed_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/15"
+          >
+            Open app ↗
+          </a>
+        )}
+        {!prototype?.deployed_url && prototype && ACTIVE_STATUSES.has(prototype.status) && (
+          <span className="rounded-md border border-border bg-secondary px-3 py-1.5 text-xs font-medium text-muted-foreground">
+            Building…
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MyBusinessesPage() {
   const {
     loading: authLoading,
@@ -138,21 +228,37 @@ function MyBusinessesPage() {
     setGuestEmail,
   } = useRequireAuth("/my-businesses");
   const [prototypes, setPrototypes] = useState<Prototype[]>([]);
+  const [businesses, setBusinesses] = useState<BusinessCardItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
     if (user) {
-      supabase
-        .from("prototypes")
-        .select(
-          "id, name, status, thumbnail_url, deployed_url, created_at, opportunity_id, source_type, source_idea_id",
-        )
-        .order("created_at", { ascending: false })
-        .then(({ data, error }) => {
-          if (error) toast.error("Couldn't load prototypes");
-          else setPrototypes(((data ?? []) as Prototype[]).filter(shouldShowPrototype));
+      Promise.all([
+        supabase.from("user_ideas").select("*").order("created_at", { ascending: false }),
+        supabase
+          .from("prototypes")
+          .select(
+            "id, name, status, thumbnail_url, deployed_url, created_at, opportunity_id, source_type, source_idea_id",
+          )
+          .order("created_at", { ascending: false }),
+      ])
+        .then(([ideasResult, prototypesResult]) => {
+          if (ideasResult.error || prototypesResult.error) {
+            toast.error("Couldn't load businesses");
+            return;
+          }
+          const ideas = (ideasResult.data ?? []) as unknown as UserIdea[];
+          const visiblePrototypes = ((prototypesResult.data ?? []) as Prototype[]).filter(
+            shouldShowPrototype,
+          );
+          setPrototypes(visiblePrototypes);
+          setBusinesses(joinIdeasWithPrototypes(ideas, visiblePrototypes));
+          setLoading(false);
+        })
+        .catch(() => {
+          toast.error("Couldn't load businesses");
           setLoading(false);
         });
       return;
@@ -161,15 +267,25 @@ function MyBusinessesPage() {
     if (isGuest && guestId) {
       const params = new URLSearchParams({ guest_id: guestId });
       if (guestEmail) params.set("email", guestEmail);
-      fetch(`/api/guest/prototypes?${params.toString()}`)
-        .then((res) => res.json())
-        .then((data: { prototypes?: Prototype[]; error?: string }) => {
-          if (data.error) toast.error(data.error);
-          setPrototypes((data.prototypes ?? []).filter(shouldShowPrototype));
+      Promise.all([
+        fetch(`/api/guest/ideas?${params.toString()}`).then(
+          (res) => res.json() as Promise<{ ideas?: UserIdea[]; error?: string }>,
+        ),
+        fetch(`/api/guest/prototypes?${params.toString()}`).then(
+          (res) => res.json() as Promise<{ prototypes?: Prototype[]; error?: string }>,
+        ),
+      ])
+        .then(([ideasData, prototypesData]) => {
+          if (ideasData.error || prototypesData.error) {
+            toast.error(ideasData.error ?? prototypesData.error ?? "Couldn't load guest businesses");
+          }
+          const visiblePrototypes = (prototypesData.prototypes ?? []).filter(shouldShowPrototype);
+          setPrototypes(visiblePrototypes);
+          setBusinesses(joinIdeasWithPrototypes(ideasData.ideas ?? [], visiblePrototypes));
           setLoading(false);
         })
         .catch(() => {
-          toast.error("Couldn't load guest prototypes");
+          toast.error("Couldn't load guest businesses");
           setLoading(false);
         });
       return;
@@ -215,16 +331,19 @@ function MyBusinessesPage() {
       )}
 
       {/* Grid */}
-      {!loading && prototypes.length > 0 && (
+      {!loading && (businesses.length > 0 || prototypes.length > 0) && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {prototypes.map((p) => (
+          {businesses.map((item) => (
+            <BusinessIdeaCard key={item.idea.id} item={item} />
+          ))}
+          {prototypes.filter((p) => !p.source_idea_id).map((p) => (
             <PrototypeCard key={p.id} proto={p} />
           ))}
         </div>
       )}
 
       {/* Empty state */}
-      {!loading && prototypes.length === 0 && (
+      {!loading && businesses.length === 0 && prototypes.length === 0 && (
         <div className="rounded-2xl border border-dashed border-border bg-card/50 p-16 text-center">
           <p className="mb-2 text-3xl">🚀</p>
           <p className="text-lg font-semibold text-foreground">No businesses built yet</p>

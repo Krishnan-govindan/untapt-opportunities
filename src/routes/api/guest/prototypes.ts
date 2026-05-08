@@ -6,6 +6,8 @@ export const Route = createFileRoute("/api/guest/prototypes")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const url = new URL(request.url);
+        const sourceIdeaId = url.searchParams.get("source_idea_id");
         const identity = guestIdentityFromRequest(request);
         if (!identity)
           return jsonResponse({ error: "Valid guest_id is required" }, { status: 400 });
@@ -20,6 +22,7 @@ export const Route = createFileRoute("/api/guest/prototypes")({
 
         if (identity.email) query.eq("owner_email", identity.email);
         else query.is("owner_email", null);
+        if (sourceIdeaId) query.eq("source_idea_id", sourceIdeaId);
 
         const { data, error } = await query.order("created_at", { ascending: false });
 

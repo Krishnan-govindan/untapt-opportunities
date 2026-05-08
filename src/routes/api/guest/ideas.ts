@@ -38,9 +38,28 @@ export const Route = createFileRoute("/api/guest/ideas")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const url = new URL(request.url);
+        const id = url.searchParams.get("id");
         const identity = guestIdentityFromRequest(request);
         if (!identity)
           return jsonResponse({ error: "Valid guest_id is required" }, { status: 400 });
+
+        if (id) {
+          let query = supabaseAdmin
+            .from("user_ideas")
+            .select(ideaSelect)
+            .eq("id", id)
+            .eq("owner_type", "guest")
+            .eq("guest_id", identity.guestId);
+
+          if (identity.email) query = query.eq("owner_email", identity.email);
+          else query = query.is("owner_email", null);
+
+          const { data, error } = await query.maybeSingle();
+          if (error) return jsonResponse({ error: error.message }, { status: 500 });
+          if (!data) return jsonResponse({ error: "Idea not found" }, { status: 404 });
+          return jsonResponse({ idea: data });
+        }
 
         const { data, error } = await scopedGuestIdeas(identity.guestId, identity.email);
         if (error) return jsonResponse({ error: error.message }, { status: 500 });

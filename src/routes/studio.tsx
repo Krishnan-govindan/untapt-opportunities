@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -478,20 +478,10 @@ function IdeaCard({
 
   const handleChatAbout = () => {
     setOpen(true);
-    const researchContext = (idea.research_results ?? []).slice(0, 8) as Opportunity[];
     setPageContext({
-      type: "explore",
-      query: [
-        idea.title,
-        idea.description,
-        `Category: ${idea.category}`,
-        idea.video_url ? `Video: ${idea.video_url}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      mode: "saved",
-      resultCount: researchContext.length,
-      opportunities: researchContext,
+      type: "business",
+      idea,
+      prototype: null,
     });
   };
 
@@ -726,6 +716,7 @@ function StudioPage() {
     setGuestEmail,
   } = useRequireAuth("/studio");
   const { setPageContext } = useAgent();
+  const navigate = useNavigate();
   const [ideas, setIdeas] = useState<UserIdea[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -781,6 +772,7 @@ function StudioPage() {
     setIdeas((prev) => [idea, ...prev]);
     setCreating(false);
     toast.success("Idea saved!");
+    navigate({ to: "/business/$id", params: { id: idea.id } });
   };
 
   const saveSignedInIdea = async (draft: {

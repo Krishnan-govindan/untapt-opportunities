@@ -16,6 +16,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OpportunityIdRouteImport } from './routes/opportunity.$id'
 import { Route as DemoIdRouteImport } from './routes/demo.$id'
+import { Route as BusinessIdRouteImport } from './routes/business.$id'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as ApiResearchHistoryRouteImport } from './routes/api/research-history'
 import { Route as ApiExploreIndexRouteImport } from './routes/api/explore/index'
@@ -60,6 +61,11 @@ const OpportunityIdRoute = OpportunityIdRouteImport.update({
 const DemoIdRoute = DemoIdRouteImport.update({
   id: '/demo/$id',
   path: '/demo/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BusinessIdRoute = BusinessIdRouteImport.update({
+  id: '/business/$id',
+  path: '/business/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
@@ -121,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/studio': typeof StudioRoute
   '/api/research-history': typeof ApiResearchHistoryRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/business/$id': typeof BusinessIdRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
   '/api/build/status': typeof ApiBuildStatusRoute
@@ -140,6 +147,7 @@ export interface FileRoutesByTo {
   '/studio': typeof StudioRoute
   '/api/research-history': typeof ApiResearchHistoryRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/business/$id': typeof BusinessIdRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
   '/api/build/status': typeof ApiBuildStatusRoute
@@ -160,6 +168,7 @@ export interface FileRoutesById {
   '/studio': typeof StudioRoute
   '/api/research-history': typeof ApiResearchHistoryRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/business/$id': typeof BusinessIdRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
   '/api/build/status': typeof ApiBuildStatusRoute
@@ -181,6 +190,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/api/research-history'
     | '/auth/callback'
+    | '/business/$id'
     | '/demo/$id'
     | '/opportunity/$id'
     | '/api/build/status'
@@ -200,6 +210,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/api/research-history'
     | '/auth/callback'
+    | '/business/$id'
     | '/demo/$id'
     | '/opportunity/$id'
     | '/api/build/status'
@@ -219,6 +230,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/api/research-history'
     | '/auth/callback'
+    | '/business/$id'
     | '/demo/$id'
     | '/opportunity/$id'
     | '/api/build/status'
@@ -238,6 +250,7 @@ export interface RootRouteChildren {
   MyBusinessesRoute: typeof MyBusinessesRoute
   StudioRoute: typeof StudioRoute
   ApiResearchHistoryRoute: typeof ApiResearchHistoryRoute
+  BusinessIdRoute: typeof BusinessIdRoute
   DemoIdRoute: typeof DemoIdRoute
   OpportunityIdRoute: typeof OpportunityIdRoute
   ApiBuildStatusRoute: typeof ApiBuildStatusRoute
@@ -299,6 +312,13 @@ declare module '@tanstack/react-router' {
       path: '/demo/$id'
       fullPath: '/demo/$id'
       preLoaderRoute: typeof DemoIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/business/$id': {
+      id: '/business/$id'
+      path: '/business/$id'
+      fullPath: '/business/$id'
+      preLoaderRoute: typeof BusinessIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/callback': {
@@ -391,6 +411,7 @@ const rootRouteChildren: RootRouteChildren = {
   MyBusinessesRoute: MyBusinessesRoute,
   StudioRoute: StudioRoute,
   ApiResearchHistoryRoute: ApiResearchHistoryRoute,
+  BusinessIdRoute: BusinessIdRoute,
   DemoIdRoute: DemoIdRoute,
   OpportunityIdRoute: OpportunityIdRoute,
   ApiBuildStatusRoute: ApiBuildStatusRoute,

@@ -28,6 +28,23 @@ Research evidence: ${JSON.stringify(o.sources_detail)}
 Answer questions in the context of THIS opportunity. Keep responses under 180 words unless asked for depth. Lead with insight, not caveats.`;
   }
 
+  if (context?.type === "business" && context?.idea) {
+    const idea = context.idea as Record<string, unknown>;
+    const prototype = (context.prototype ?? null) as Record<string, unknown> | null;
+    return `${base}
+
+CURRENT PRIVATE BUSINESS THE USER IS BUILDING:
+Title: ${idea.title}
+Category: ${idea.category}
+Description: ${idea.description}
+Video URL: ${idea.video_url}
+Files: ${JSON.stringify(idea.files)}
+Research results / market signals: ${JSON.stringify(idea.research_results)}
+Linked prototype: ${JSON.stringify(prototype)}
+
+Answer questions in the context of THIS saved business idea, not the general Explore page. Treat public opportunities as supporting market evidence only. Help the user pick the market, understand competitors, choose the first ICP, refine MVP scope, and decide what to build next. Keep responses under 180 words unless asked for depth.`;
+  }
+
   if (context?.type === "feed") {
     const parts = [
       `${base}

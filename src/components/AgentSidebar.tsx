@@ -11,6 +11,12 @@ const STARTERS: Record<string, string[]> = {
     "What would a $500K seed deck say?",
     "Give me the 3-week MVP plan",
   ],
+  business: [
+    "What's the best market for this?",
+    "Who is the first ICP?",
+    "What should the MVP include?",
+    "Who are the competitors?",
+  ],
   feed: [
     "Which opportunity has the best risk/reward?",
     "What makes a $B+ TAM actually reachable?",
@@ -34,6 +40,7 @@ function ContextBadge({ type }: { type: string | undefined }) {
   if (!type) return null;
   const labels: Record<string, { emoji: string; text: string; cls: string }> = {
     opportunity: { emoji: "📊", text: "Opportunity context", cls: "badge-urgent" },
+    business: { emoji: "🧭", text: "Business context", cls: "badge-tam" },
     feed: { emoji: "📡", text: "Feed context", cls: "badge-multi" },
     explore: { emoji: "🔎", text: "Explore context", cls: "badge-multi" },
     demo: { emoji: "🧪", text: "Demo context", cls: "badge-tam" },
@@ -68,6 +75,7 @@ function storageKey(chatId: string): string {
 
 function chatIdForContext(pageContext: PageContext | null): string {
   if (pageContext?.type === "opportunity") return `opp-${pageContext.opportunity.id}`;
+  if (pageContext?.type === "business") return `business-${pageContext.idea.id}`;
   if (pageContext?.type === "explore") return `explore-${pageContext.query ?? "blank"}`;
   if (pageContext?.type === "feed") {
     return `feed-${pageContext.query ?? "all"}-${pageContext.filter ?? "all"}`;
@@ -314,6 +322,16 @@ export function AgentSidebar() {
             <p className="truncate text-xs font-medium text-foreground">{pageContext.query}</p>
             <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
               {pageContext.mode === "research" ? "web research" : "saved search"}
+            </p>
+          </div>
+        )}
+
+        {pageContext?.type === "business" && (
+          <div className="border-b border-border bg-secondary/40 px-4 py-2.5">
+            <p className="truncate text-xs font-medium text-foreground">{pageContext.idea.title}</p>
+            <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+              {pageContext.idea.category}
+              {pageContext.prototype?.status ? ` · ${pageContext.prototype.status}` : ""}
             </p>
           </div>
         )}

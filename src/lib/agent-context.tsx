@@ -6,10 +6,21 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import type { Opportunity } from "@/lib/types";
+import type { Opportunity, UserIdea } from "@/lib/types";
 
 export type PageContext =
   | { type: "feed"; query?: string; filter?: string }
+  | {
+      type: "business";
+      idea: UserIdea;
+      prototype?: {
+        id: string;
+        name: string;
+        status: string;
+        deployed_url: string | null;
+        business_context?: unknown;
+      } | null;
+    }
   | {
       type: "explore";
       query?: string;
