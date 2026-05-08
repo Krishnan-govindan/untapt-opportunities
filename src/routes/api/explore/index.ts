@@ -7,8 +7,14 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 // ─── Constants (mirrored from scrape-and-cluster.ts) ─────────────────────────
 
-const ACTOR_TIMEOUT_SECS = 300;
-const BATCH_SIZE = 30;
+const FUNCTION_DEADLINE_MS = 52_000;
+const ACTOR_TIMEOUT_SECS = 20;
+const GOOGLE_TIMEOUT_MS = 22_000;
+const TWITTER_TIMEOUT_MS = 10_000;
+const CLAUDE_TIMEOUT_MS = 18_000;
+const SAVE_TIMEOUT_MS = 6_000;
+const BATCH_SIZE = 18;
+const EXPLORE_MODEL = "claude-sonnet-4-6";
 
 const POLITICAL_KWS = [
   "trump",
@@ -153,6 +159,27 @@ function isRelevant(item: RawItem): boolean {
   return RELEVANCE_KWS.some((kw) => text.includes(kw)) || text.length > 100;
 }
 
+function timeLeft(deadlineAt: number, reserveMs = 1_500): number {
+  return Math.max(0, deadlineAt - Date.now() - reserveMs);
+}
+
+function timeoutMessage(topic: string): string {
+  return `Research for "${topic}" reached the time limit before fresh opportunities could be saved. The progress log is preserved, and you can try again with a narrower query.`;
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  if (ms <= 0) return fallback;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), ms);
+  });
+  try {
+    return await Promise.race([promise.catch(() => fallback), timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 // ─── Scrapers ─────────────────────────────────────────────────────────────────
 
 async function scrapeTwitter(apify: ApifyClient, queries: string[]): Promise<RawItem[]> {
@@ -223,8 +250,8 @@ async function clusterBatch(anthropic: Anthropic, batch: RawItem[]): Promise<Cla
     .join("\n\n---\n\n");
 
   const msg = await anthropic.messages.create({
-    model: "claude-opus-4-7",
-    max_tokens: 4096,
+    model: EXPLORE_MODEL,
+    max_tokens: 2048,
     system: SYSTEM_PROMPT,
     messages: [
       {
@@ -305,57 +332,75 @@ async function runExplorePipeline(
   topic: string,
 ): Promise<void> {
   const enc = new TextEncoder();
-  const send = (event: string, data: object) => {
+  const deadlineAt = Date.now() + FUNCTION_DEADLINE_MS;
+  let terminalSent = false;
+
+  const send = async (event: string, data: object) => {
     try {
-      writer.write(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      await writer.write(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
     } catch {
       // client disconnected
     }
   };
 
-  const missing = missingServerEnv(["APIFY_TOKEN", "ANTHROPIC_API_KEY"]);
-  if (missing.length > 0) {
-    send("error", { message: `Missing ${missing.join(" or ")} env vars` });
-    return;
-  }
-  const apifyToken = serverEnv("APIFY_TOKEN")!;
-  const anthropicKey = serverEnv("ANTHROPIC_API_KEY")!;
+  const sendDone = async (data: object) => {
+    if (terminalSent) return;
+    terminalSent = true;
+    await send("done", data);
+  };
 
-  const { ApifyClient } = await import("apify-client");
-  const { default: Anthropic } = await import("@anthropic-ai/sdk");
-
-  const apify = new ApifyClient({ token: apifyToken });
-  const anthropic = new Anthropic({ apiKey: anthropicKey });
+  const sendError = async (message: string) => {
+    if (terminalSent) return;
+    terminalSent = true;
+    await send("error", { message });
+  };
 
   try {
-    // ── 1. Scrape X/Twitter ───────────────────────────────────────────────────
-    send("status", { message: `Searching X for "${topic}" pain points…` });
+    const missing = missingServerEnv(["APIFY_TOKEN", "ANTHROPIC_API_KEY"]);
+    if (missing.length > 0) {
+      await sendError(`Missing ${missing.join(" or ")} env vars`);
+      return;
+    }
+    const apifyToken = serverEnv("APIFY_TOKEN")!;
+    const anthropicKey = serverEnv("ANTHROPIC_API_KEY")!;
 
+    const { ApifyClient } = await import("apify-client");
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+
+    const apify = new ApifyClient({ token: apifyToken });
+    const anthropic = new Anthropic({ apiKey: anthropicKey });
+
+    // ── 1. Scrape web signals ────────────────────────────────────────────────
+    await send("status", {
+      message: `Searching Google, Quora, and LinkedIn for "${topic}" complaints…`,
+    });
+    const googleQueries = [
+      `site:quora.com "${topic}" problem frustrated`,
+      `site:quora.com "${topic}" "I wish there was"`,
+      `site:linkedin.com/pulse "${topic}" challenges pain`,
+      `"${topic}" painful problems tool missing`,
+      `"${topic}" software complaint frustrated users`,
+    ];
+    const googleItems = await withTimeout(
+      scrapeGoogle(apify, googleQueries),
+      Math.min(GOOGLE_TIMEOUT_MS, timeLeft(deadlineAt)),
+      [] as RawItem[],
+    );
+
+    await send("status", { message: `Checking X for "${topic}" pain points…` });
     const twitterQueries = [
       `"${topic}" "wish there was"`,
       `"${topic}" frustrated problems`,
       `"${topic}" "why isn't there"`,
       `"${topic}" "someone should build"`,
     ];
-
-    const [twitterItems, googleItems] = await Promise.allSettled([
+    const twitterItems = await withTimeout(
       scrapeTwitter(apify, twitterQueries),
-      (async () => {
-        send("status", { message: `Searching Quora and LinkedIn for "${topic}" complaints…` });
-        const googleQueries = [
-          `site:quora.com "${topic}" problem frustrated`,
-          `site:quora.com "${topic}" "I wish there was"`,
-          `site:linkedin.com/pulse "${topic}" challenges pain`,
-          `"${topic}" painful problems tool missing`,
-          `"${topic}" software complaint frustrated users`,
-        ];
-        return scrapeGoogle(apify, googleQueries);
-      })(),
-    ]);
+      Math.min(TWITTER_TIMEOUT_MS, timeLeft(deadlineAt)),
+      [] as RawItem[],
+    );
 
-    const raw: RawItem[] = [];
-    if (twitterItems.status === "fulfilled") raw.push(...twitterItems.value);
-    if (googleItems.status === "fulfilled") raw.push(...googleItems.value);
+    const raw: RawItem[] = [...googleItems, ...twitterItems];
 
     // ── 2. Dedup + filter ────────────────────────────────────────────────────
     const seen = new Set<string>();
@@ -370,10 +415,10 @@ async function runExplorePipeline(
     }
 
     if (filtered.length === 0) {
-      send("status", {
+      await send("status", {
         message: `No fresh web signals found for "${topic}".`,
       });
-      send("done", {
+      await sendDone({
         opportunities: [],
         topic,
         empty: true,
@@ -383,20 +428,35 @@ async function runExplorePipeline(
     }
 
     // ── 3. Cluster with Claude ───────────────────────────────────────────────
-    send("status", { message: `Analyzing ${filtered.length} signals with AI…` });
+    if (timeLeft(deadlineAt, CLAUDE_TIMEOUT_MS + 2_000) <= 0) {
+      await sendDone({
+        opportunities: [],
+        topic,
+        empty: true,
+        message: timeoutMessage(topic),
+      });
+      return;
+    }
+
+    await send("status", { message: `Analyzing ${filtered.length} signals with AI…` });
 
     const allOpps: ClaudeOpportunity[] = [];
     for (let i = 0; i < filtered.length; i += BATCH_SIZE) {
+      if (timeLeft(deadlineAt, 3_000) <= 0) break;
       const batch = filtered.slice(i, i + BATCH_SIZE);
-      const opps = await clusterBatch(anthropic, batch);
+      const opps = await withTimeout(
+        clusterBatch(anthropic, batch),
+        Math.min(CLAUDE_TIMEOUT_MS, timeLeft(deadlineAt, 2_000)),
+        [] as ClaudeOpportunity[],
+      );
       allOpps.push(...opps);
     }
 
     if (allOpps.length === 0) {
-      send("status", {
+      await send("status", {
         message: `AI found no new structured opportunities for "${topic}".`,
       });
-      send("done", {
+      await sendDone({
         opportunities: [],
         topic,
         empty: true,
@@ -406,22 +466,59 @@ async function runExplorePipeline(
     }
 
     // ── 4. Upsert to DB ──────────────────────────────────────────────────────
-    send("status", { message: `Saving ${allOpps.length} opportunities to feed…` });
-    await upsertOpportunities(allOpps);
+    if (timeLeft(deadlineAt, SAVE_TIMEOUT_MS + 1_000) <= 0) {
+      await sendDone({
+        opportunities: [],
+        topic,
+        empty: true,
+        message: timeoutMessage(topic),
+      });
+      return;
+    }
+
+    await send("status", { message: `Saving ${allOpps.length} opportunities to feed…` });
+    await withTimeout(
+      upsertOpportunities(allOpps),
+      Math.min(SAVE_TIMEOUT_MS, timeLeft(deadlineAt)),
+      [] as string[],
+    );
 
     // ── 5. Fetch saved rows to return full Opportunity objects ───────────────
     const hashes = allOpps.map((o) => fingerprint(o.title));
-    const { data: saved } = await supabaseAdmin
-      .from("opportunities")
-      .select("*")
-      .in("dedup_hash", hashes);
+    const saved = await withTimeout(
+      supabaseAdmin
+        .from("opportunities")
+        .select("*")
+        .in("dedup_hash", hashes)
+        .then(({ data }) => data),
+      Math.min(SAVE_TIMEOUT_MS, timeLeft(deadlineAt)),
+      null,
+    );
 
-    send("done", { opportunities: saved ?? [], topic });
+    if (!saved?.length) {
+      await sendDone({
+        opportunities: [],
+        topic,
+        empty: true,
+        message: `Research found possible signals for "${topic}", but could not save them before the request ended. Try again with a narrower query.`,
+      });
+      return;
+    }
+
+    await sendDone({ opportunities: saved, topic });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    send("error", { message });
+    await sendError(message);
   } finally {
     try {
+      if (!terminalSent) {
+        await sendDone({
+          opportunities: [],
+          topic,
+          empty: true,
+          message: timeoutMessage(topic),
+        });
+      }
       await writer.close();
     } catch {
       // Client disconnected.

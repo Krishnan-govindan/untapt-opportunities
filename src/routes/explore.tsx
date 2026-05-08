@@ -136,6 +136,7 @@ function Explore() {
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const runSeqRef = useRef(0);
   const resultsRef = useRef<HTMLDivElement>(null);
   const { setOpen, setPageContext } = useAgent();
   const { user, guestId, guestEmail, continueAsGuest, setGuestEmail } = useAuth();
@@ -184,6 +185,12 @@ function Explore() {
     user?.email ??
     guestEmail ??
     (typeof window !== "undefined" ? window.localStorage.getItem(GUEST_EMAIL_KEY) : null);
+
+  const cancelActiveResearch = () => {
+    const reader = readerRef.current;
+    readerRef.current = null;
+    if (reader) void reader.cancel().catch(() => undefined);
+  };
 
   const persistResult = async (localEntry: ExploreHistoryEntry) => {
     try {
@@ -319,6 +326,8 @@ function Explore() {
   };
 
   const searchSaved = async (query: string) => {
+    cancelActiveResearch();
+    const runId = ++runSeqRef.current;
     setPhase({
       kind: "running",
       mode: "saved",
@@ -335,11 +344,14 @@ function Explore() {
       };
 
       if (!res.ok) {
-        setPhase({ kind: "error", message: data.error ?? "Search failed" });
+        if (runSeqRef.current === runId) {
+          setPhase({ kind: "error", message: data.error ?? "Search failed" });
+        }
         return;
       }
 
       const opportunities = data.opportunities ?? [];
+      if (runSeqRef.current !== runId) return;
       setPhase({
         kind: "done",
         mode: "saved",
@@ -355,10 +367,12 @@ function Explore() {
         messages: ["Searched saved opportunities"],
       });
     } catch (err: unknown) {
-      setPhase({
-        kind: "error",
-        message: err instanceof Error ? err.message : "Network error",
-      });
+      if (runSeqRef.current === runId) {
+        setPhase({
+          kind: "error",
+          message: err instanceof Error ? err.message : "Network error",
+        });
+      }
     }
   };
 
@@ -366,9 +380,33 @@ function Explore() {
     const trimmed = query.trim();
     if (!trimmed) return;
 
+    cancelActiveResearch();
+    const runId = ++runSeqRef.current;
     setTopic(trimmed);
     let progressMessages = ["Starting web research…"];
+    let terminalReceived = false;
     setPhase({ kind: "running", mode: "research", messages: progressMessages });
+
+    const finishInterruptedRun = (message: string) => {
+      if (runSeqRef.current !== runId || terminalReceived) return;
+      terminalReceived = true;
+      setPhase({
+        kind: "done",
+        mode: "research",
+        opportunities: [],
+        topic: trimmed,
+        message,
+        empty: true,
+      });
+      rememberResult({
+        mode: "research",
+        topic: trimmed,
+        opportunities: [],
+        messages: [...progressMessages, message],
+        message,
+        empty: true,
+      });
+    };
 
     try {
       const res = await fetch("/api/explore", {
@@ -376,6 +414,8 @@ function Explore() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic: trimmed }),
       });
+
+      if (runSeqRef.current !== runId) return;
 
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: "Request failed" }));
@@ -394,6 +434,9 @@ function Explore() {
         try {
           result = await reader.read();
         } catch {
+          finishInterruptedRun(
+            `Research for "${trimmed}" stopped before the server returned final results. The progress log is saved; try again with a narrower query.`,
+          );
           break;
         }
         const { done, value } = result;
@@ -409,6 +452,7 @@ function Explore() {
           } else if (line.startsWith("data: ") && currentEvent) {
             try {
               const data = JSON.parse(line.slice(6)) as Record<string, unknown>;
+              if (runSeqRef.current !== runId) return;
               if (currentEvent === "status") {
                 const message = String(data.message ?? "Working…");
                 progressMessages = [...progressMessages, message];
@@ -422,10 +466,12 @@ function Explore() {
                     : prev,
                 );
               } else if (currentEvent === "done") {
+                terminalReceived = true;
                 const opportunities = (data.opportunities as Opportunity[]) ?? [];
                 const doneTopic = String(data.topic ?? trimmed);
                 const message = typeof data.message === "string" ? data.message : undefined;
                 const empty = data.empty === true || opportunities.length === 0;
+                if (runSeqRef.current !== runId) return;
                 setPhase({
                   kind: "done",
                   mode: "research",
@@ -443,6 +489,8 @@ function Explore() {
                   empty,
                 });
               } else if (currentEvent === "error") {
+                terminalReceived = true;
+                if (runSeqRef.current !== runId) return;
                 setPhase({
                   kind: "error",
                   message: data.message as string,
@@ -455,13 +503,20 @@ function Explore() {
           }
         }
       }
+
+      finishInterruptedRun(
+        `Research for "${trimmed}" ended before final results were returned. The progress log is saved; try again with a narrower query.`,
+      );
     } catch (err: unknown) {
-      setPhase({
-        kind: "error",
-        message: err instanceof Error ? err.message : "Network error",
-      });
+      if (runSeqRef.current === runId) {
+        finishInterruptedRun(
+          err instanceof Error
+            ? `Research for "${trimmed}" was interrupted: ${err.message}`
+            : `Research for "${trimmed}" was interrupted by a network error.`,
+        );
+      }
     } finally {
-      readerRef.current = null;
+      if (runSeqRef.current === runId) readerRef.current = null;
     }
   };
 
@@ -550,7 +605,7 @@ function Explore() {
           )}
           <p className="mt-4 font-mono text-[10px] text-muted-foreground/60">
             {phase.mode === "research"
-              ? "Scraping X, Quora, and LinkedIn — this takes 3–5 minutes…"
+              ? "Searching public web signals — usually finishes in under a minute…"
               : "Scanning titles, pain, ICP, competitors, features, sources, and source snippets…"}
           </p>
         </div>
