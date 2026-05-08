@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Opportunity } from "@/lib/types";
 import { OpportunityCard } from "@/components/OpportunityCard";
 import { useAgent } from "@/lib/agent-context";
-import { requireAuth } from "@/lib/require-auth";
+import { requireAuth, useRequireAuth } from "@/lib/require-auth";
 
 export const Route = createFileRoute("/explore")({
   beforeLoad: async () => { await requireAuth("/explore"); },
@@ -94,6 +94,7 @@ function agentOpportunities(opportunities: Opportunity[]) {
 }
 
 function Explore() {
+  const auth = useRequireAuth("/explore");
   const [topic, setTopic] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [history, setHistory] = useState<ExploreHistoryEntry[]>([]);
@@ -347,6 +348,14 @@ function Explore() {
   }, [phase, setPageContext, topic]);
 
   const isRunning = phase.kind === "running";
+
+  if (auth.loading || !auth.user) {
+    return (
+      <main className="flex min-h-[calc(100vh-56px)] items-center justify-center px-6">
+        <div className="text-sm text-muted-foreground">Redirecting to sign in...</div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-16">

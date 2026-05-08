@@ -2,8 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/lib/auth-context";
-import { requireAuth } from "@/lib/require-auth";
+import { requireAuth, useRequireAuth } from "@/lib/require-auth";
 
 export const Route = createFileRoute("/my-businesses")({
   beforeLoad: async () => { await requireAuth("/my-businesses"); },
@@ -97,7 +96,7 @@ function PrototypeCard({ proto }: { proto: Prototype }) {
 }
 
 function MyBusinessesPage() {
-  const { user } = useAuth();
+  const { loading: authLoading, user } = useRequireAuth("/my-businesses");
   const [prototypes, setPrototypes] = useState<Prototype[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -114,7 +113,13 @@ function MyBusinessesPage() {
       });
   }, [user]);
 
-  if (!user) return null;
+  if (authLoading || !user) {
+    return (
+      <main className="flex min-h-[calc(100vh-56px)] items-center justify-center px-6">
+        <div className="text-sm text-muted-foreground">Redirecting to sign in...</div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-16">

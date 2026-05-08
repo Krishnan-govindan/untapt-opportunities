@@ -44,13 +44,12 @@ export function Header() {
           <Link to="/" className={linkCls(location.pathname === "/")}>
             Feed
           </Link>
-          <Link to="/explore" className={linkCls(location.pathname === "/explore")}>
-            Explore
-          </Link>
-
           <ClientOnly>
             {user && (
               <>
+                <Link to="/explore" className={linkCls(location.pathname === "/explore")}>
+                  Explore
+                </Link>
                 <Link to="/studio" className={linkCls(location.pathname === "/studio")}>
                   Studio
                 </Link>

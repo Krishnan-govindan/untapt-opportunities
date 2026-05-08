@@ -3,8 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
-import { useAuth } from "@/lib/auth-context";
-import { requireAuth } from "@/lib/require-auth";
+import { requireAuth, useRequireAuth } from "@/lib/require-auth";
 import { useAgent } from "@/lib/agent-context";
 import type { UserIdea, IdeaFile, Opportunity } from "@/lib/types";
 import { IDEA_CATEGORIES } from "@/lib/types";
@@ -430,7 +429,7 @@ function IdeaCard({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 function StudioPage() {
-  const { user } = useAuth();
+  const { loading: authLoading, user } = useRequireAuth("/studio");
   const { setPageContext } = useAgent();
   const [ideas, setIdeas] = useState<UserIdea[]>([]);
   const [loading, setLoading] = useState(true);
@@ -468,7 +467,13 @@ function StudioPage() {
     toast.success("Idea deleted");
   };
 
-  if (!user) return null;
+  if (authLoading || !user) {
+    return (
+      <main className="flex min-h-[calc(100vh-56px)] items-center justify-center px-6">
+        <div className="text-sm text-muted-foreground">Redirecting to sign in...</div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-16">
