@@ -60,6 +60,212 @@ function categoryColor(cat: string) {
   return map[cat] ?? "border-border bg-secondary text-muted-foreground";
 }
 
+function competitorPricing(competitor: Opportunity["competitors"][number]): string {
+  return competitor.pricing ?? competitor.pricing_hint ?? "Pricing unknown";
+}
+
+function uniqueStrings(items: Array<string | null | undefined>, limit: number) {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const item of items) {
+    const value = item?.trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(value);
+    if (output.length >= limit) break;
+  }
+  return output;
+}
+
+function synthesizedResearch(idea: UserIdea) {
+  const signals = idea.research_results ?? [];
+  const topSignal = signals[0];
+  const sourceDetails = signals.flatMap((signal) => signal.sources_detail ?? []).slice(0, 5);
+  const competitors = signals
+    .flatMap((signal) => signal.competitors ?? [])
+    .filter((competitor) => competitor.name)
+    .slice(0, 5);
+  const mvpFeatures = uniqueStrings(
+    [
+      ...signals.flatMap((signal) => signal.mvp_features ?? []),
+      "Capture the core user workflow in one focused product surface",
+      "Track the highest-friction task from intake to resolution",
+      "Create a simple dashboard for early customer validation",
+    ],
+    6,
+  );
+  const urgencyScore =
+    signals.length > 0 ? Math.max(...signals.map((signal) => signal.urgency_score ?? 0), 5) : 5;
+  const tamEstimate =
+    signals.find((signal) => signal.tam_estimate && signal.tam_estimate !== "TBD")?.tam_estimate ??
+    "TBD";
+
+  return {
+    signalCount: signals.length,
+    tamEstimate,
+    urgencyScore,
+    icp:
+      topSignal?.icp ??
+      `Founders, operators, and early adopters validating ${idea.category.toLowerCase()} workflows.`,
+    painDescription:
+      idea.description ||
+      topSignal?.pain_description ||
+      `The idea needs sharper validation around the buyer, pain intensity, and first workflow.`,
+    whyNow:
+      topSignal?.why_now ??
+      "The fastest path is to validate this as a narrow prototype, then use customer conversations to decide whether it deserves a larger build.",
+    competitors,
+    mvpFeatures,
+    sourceDetails,
+  };
+}
+
+function ResearchBrief({ idea }: { idea: UserIdea }) {
+  const research = synthesizedResearch(idea);
+  const signals = idea.research_results ?? [];
+
+  return (
+    <div className="col-span-full mt-0 rounded-2xl border border-primary/30 bg-card/70 p-5">
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-primary">
+            Research brief
+          </p>
+          <h4 className="mt-1 text-lg font-semibold text-foreground">{idea.title}</h4>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            This is the research summary for your idea. The cards below are market signals we found,
+            not businesses added to your portfolio.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl border border-border bg-secondary/60 px-3 py-2">
+            <p className="font-mono text-sm text-foreground">{research.tamEstimate}</p>
+            <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">TAM</p>
+          </div>
+          <div className="rounded-xl border border-border bg-secondary/60 px-3 py-2">
+            <p className="font-mono text-sm text-foreground">{research.urgencyScore}/10</p>
+            <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              Urgency
+            </p>
+          </div>
+          <div className="rounded-xl border border-border bg-secondary/60 px-3 py-2">
+            <p className="font-mono text-sm text-foreground">{research.signalCount}</p>
+            <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              Signals
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="space-y-5">
+          <section>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              ICP
+            </p>
+            <p className="text-sm leading-relaxed text-foreground">{research.icp}</p>
+          </section>
+          <section>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Pain description
+            </p>
+            <p className="text-sm leading-relaxed text-foreground">{research.painDescription}</p>
+          </section>
+          <section>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Why now
+            </p>
+            <p className="text-sm leading-relaxed text-foreground">{research.whyNow}</p>
+          </section>
+        </div>
+
+        <div className="space-y-5">
+          <section>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Suggested MVP features
+            </p>
+            <ul className="space-y-1.5">
+              {research.mvpFeatures.map((feature) => (
+                <li key={feature} className="flex gap-2 text-sm text-foreground">
+                  <span className="text-primary">▸</span>
+                  <span>{feature}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {research.competitors.length > 0 && (
+            <section>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Competitors
+              </p>
+              <ul className="space-y-2">
+                {research.competitors.map((competitor) => (
+                  <li
+                    key={competitor.name}
+                    className="flex items-center justify-between rounded-lg border border-border bg-secondary/50 px-3 py-2"
+                  >
+                    <span className="text-sm font-medium text-foreground">{competitor.name}</span>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {competitorPricing(competitor)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+      </div>
+
+      {research.sourceDetails.length > 0 && (
+        <section className="mt-5">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Sources
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {research.sourceDetails.map((source, index) => (
+              <a
+                key={`${source.url}-${index}`}
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-lg border border-border bg-secondary/40 p-3 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              >
+                <span className="font-mono uppercase tracking-wider text-primary">
+                  {source.platform}
+                </span>
+                <span className="mt-1 block line-clamp-2">{source.snippet || source.url}</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {signals.length > 0 && (
+        <section className="mt-6 border-t border-border pt-5">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Supporting market signals
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Open any signal to inspect the full research page behind it.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {signals.map((o) => (
+              <OpportunityCard key={o.id} o={o} />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 // ── New Idea Form ─────────────────────────────────────────────────────────────
 
 function NewIdeaForm({
@@ -262,7 +468,7 @@ function IdeaCard({
       }
       onUpdate({ ...idea, research_results: results });
       setResearchOpen(true);
-      toast.success(`Found ${results.length} related opportunities`);
+      toast.success(`Research brief ready with ${results.length} market signals`);
     } catch {
       toast.error("Research failed — check your connection");
     } finally {
@@ -437,8 +643,8 @@ function IdeaCard({
               className="flex w-full items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               <span>
-                {idea.research_results.length} related opportunit
-                {idea.research_results.length === 1 ? "y" : "ies"}
+                Research brief ready · {idea.research_results.length} market signal
+                {idea.research_results.length === 1 ? "" : "s"}
               </span>
               <svg
                 width="12"
@@ -491,18 +697,9 @@ function IdeaCard({
         </div>
       </div>
 
-      {/* Research results panel */}
+      {/* Research brief panel */}
       {researchOpen && idea.research_results && idea.research_results.length > 0 && (
-        <div className="col-span-full mt-0 rounded-2xl border border-border bg-card/50 p-5">
-          <h4 className="mb-4 text-sm font-medium text-foreground">
-            Related opportunities for "{idea.title}"
-          </h4>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {idea.research_results.map((o) => (
-              <OpportunityCard key={o.id} o={o} />
-            ))}
-          </div>
-        </div>
+        <ResearchBrief idea={idea} />
       )}
 
       {buildOpen && (
