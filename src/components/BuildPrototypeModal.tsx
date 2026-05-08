@@ -18,9 +18,9 @@ type StepId = "researching" | "strategizing" | "branding" | "designing" | "deplo
 
 const STEPS: { id: StepId; label: string; icon: string }[] = [
   { id: "researching",  label: "Researching opportunity",    icon: "🔍" },
-  { id: "strategizing", label: "Crafting business strategy",  icon: "🎯" },
+  { id: "strategizing", label: "Assembling business plan",    icon: "🎯" },
   { id: "branding",     label: "Generating brand identity",   icon: "✦"  },
-  { id: "designing",    label: "Writing landing page",        icon: "⚡" },
+  { id: "designing",    label: "Assembling landing page",     icon: "⚡" },
   { id: "deploying",    label: "Deploying to Vercel",         icon: "🚀" },
 ];
 
@@ -49,9 +49,9 @@ async function* simulate(opportunity: Opportunity): AsyncGenerator<SimEvent> {
   const steps: [StepId, string, number][] = [
     ["researching",  "Setting up build job…",               600],
     ["researching",  "Fetching opportunity data…",           800],
-    ["strategizing", "Crafting your business strategy…",    1800],
+    ["strategizing", "Assembling business plan…",           1800],
     ["branding",     "Generating your brand identity…",     1000],
-    ["designing",    "Claude is writing your landing page…",2000],
+    ["designing",    "Assembling cached landing page…",     2000],
     ["deploying",    "Uploading files to Vercel…",          1000],
     ["deploying",    "Waiting for deployment…",             1200],
     ["deploying",    "Almost ready…",                        400],
@@ -177,7 +177,11 @@ export function BuildPrototypeModal({
               if (currentEvent === "status") {
                 setPhase({ kind: "running", step: data.step as StepId, message: data.message as string });
               } else if (currentEvent === "done") {
-                setPhase({ kind: "done", demoPath: `/demo/${opportunity.id}`, startupName: data.startup_name as string });
+                setPhase({
+                  kind: "done",
+                  demoPath: typeof data.url === "string" ? data.url : `/demo/${opportunity.id}`,
+                  startupName: data.startup_name as string,
+                });
               } else if (currentEvent === "error") {
                 setPhase({ kind: "error", message: data.message as string });
               }
@@ -214,7 +218,7 @@ export function BuildPrototypeModal({
         {phase.kind === "idle" && (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              We'll generate a logo, landing page, and business plan — then deploy it live.
+              We'll assemble a logo, landing page, and business plan from the cached template — then deploy it live.
             </p>
             <button
               onClick={handleSubmit}
