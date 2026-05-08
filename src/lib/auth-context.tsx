@@ -43,8 +43,8 @@ interface AuthContextValue {
   guestEmail: string | null;
   isGuest: boolean;
   loading: boolean;
-  continueAsGuest: (email?: string) => void;
-  setGuestEmail: (email: string) => void;
+  continueAsGuest: (email?: string) => string | null;
+  setGuestEmail: (email: string) => string | null;
   clearGuest: () => void;
   signOut: () => Promise<void>;
 }
@@ -65,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const continueAsGuest = (email?: string) => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return null;
     const guestId = window.localStorage.getItem(GUEST_ID_KEY) ?? createGuestId();
     window.localStorage.setItem(GUEST_ID_KEY, guestId);
     window.localStorage.setItem(GUEST_ACTIVE_KEY, "true");
@@ -76,13 +76,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       guestEmail: trimmedEmail || window.localStorage.getItem(GUEST_EMAIL_KEY),
       isGuest: true,
     });
+    return guestId;
   };
 
   const setGuestEmail = (email: string) => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return null;
     const trimmedEmail = email.trim().toLowerCase();
     window.localStorage.setItem(GUEST_EMAIL_KEY, trimmedEmail);
-    continueAsGuest(trimmedEmail);
+    return continueAsGuest(trimmedEmail);
   };
 
   useEffect(() => {

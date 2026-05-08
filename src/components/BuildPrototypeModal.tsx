@@ -115,18 +115,20 @@ export function BuildPrototypeModal({
     }
   };
 
-  const startBuild = async (emailOverride?: string) => {
+  const startBuild = async (emailOverride?: string, guestIdOverride?: string | null) => {
     setPhase({ kind: "running", step: "researching", message: "Starting build…" });
 
     // Try real API; fall back to simulation on any failure
     try {
-      if (!session?.access_token && !isGuest) {
-        setPhase({ kind: "error", message: "Please sign in or continue as a guest first." });
+      if (!session?.access_token && !isGuest && !emailOverride) {
+        setPhase({ kind: "idle" });
+        setEmailDialogOpen(true);
         return;
       }
 
       const email = emailOverride ?? user?.email ?? guestEmail ?? "";
-      if (isGuest && (!email || !guestId)) {
+      const activeGuestId = guestIdOverride ?? guestId;
+      if (!session?.access_token && (!email || !activeGuestId)) {
         setPhase({ kind: "idle" });
         setEmailDialogOpen(true);
         return;
@@ -141,7 +143,7 @@ export function BuildPrototypeModal({
         body: JSON.stringify({
           opportunity_id: opportunity.id,
           email,
-          guest_id: isGuest ? guestId : undefined,
+          guest_id: session?.access_token ? undefined : activeGuestId,
         }),
       });
 
@@ -298,8 +300,8 @@ export function BuildPrototypeModal({
         description="Enter an email so this guest prototype can be linked back to you."
         onOpenChange={setEmailDialogOpen}
         onSubmit={(email) => {
-          setGuestEmail(email);
-          void startBuild(email);
+          const nextGuestId = setGuestEmail(email);
+          void startBuild(email, nextGuestId);
         }}
       />
     </Dialog>
