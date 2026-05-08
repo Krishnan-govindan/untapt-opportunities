@@ -69,6 +69,29 @@ function fieldText(row: SearchableOpportunity, key: keyof SearchableOpportunity)
   return normalize(row[key]);
 }
 
+function textTokens(text: string): string[] {
+  return text.split(" ").filter(Boolean);
+}
+
+function hasToken(tokens: Set<string>, token: string): boolean {
+  return tokenVariants(token).some((variant) => tokens.has(variant));
+}
+
+function hasPhrase(text: string, phrase: string): boolean {
+  const haystack = textTokens(text);
+  const needle = textTokens(phrase);
+  if (needle.length === 0 || needle.length > haystack.length) return false;
+
+  for (let i = 0; i <= haystack.length - needle.length; i++) {
+    const matches = needle.every((token, offset) =>
+      tokenVariants(token).includes(haystack[i + offset]),
+    );
+    if (matches) return true;
+  }
+
+  return false;
+}
+
 function scoreOpportunity(row: SearchableOpportunity, query: string, tokens: string[]): number {
   const phrase = normalize(query);
   const weightedFields: Array<[string, number]> = [
@@ -86,19 +109,21 @@ function scoreOpportunity(row: SearchableOpportunity, query: string, tokens: str
 
   let score = 0;
   const haystack = weightedFields.map(([text]) => text).join(" ");
-  if (phrase && haystack.includes(phrase)) score += 40;
+  const haystackTokens = new Set(textTokens(haystack));
+  if (phrase && hasPhrase(haystack, phrase)) score += 40;
 
   for (const [text, weight] of weightedFields) {
+    const tokensInField = new Set(textTokens(text));
     for (const token of tokens) {
-      if (tokenVariants(token).some((variant) => text.includes(variant))) {
+      if (hasToken(tokensInField, token)) {
         score += weight;
       }
     }
   }
 
-  const matchedTokenCount = tokens.filter((token) =>
-    tokenVariants(token).some((variant) => haystack.includes(variant)),
-  ).length;
+  const matchedTokenCount = tokens.filter((token) => hasToken(haystackTokens, token)).length;
+
+  if (tokens.length === 1 && matchedTokenCount === 0) return 0;
 
   if (tokens.length > 1 && matchedTokenCount < Math.min(tokens.length, 2)) return 0;
 

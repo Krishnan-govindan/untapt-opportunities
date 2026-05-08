@@ -17,11 +17,11 @@ import { GuestEmailDialog } from "@/components/GuestEmailDialog";
 type StepId = "researching" | "strategizing" | "branding" | "designing" | "deploying";
 
 const STEPS: { id: StepId; label: string; icon: string }[] = [
-  { id: "researching",  label: "Researching opportunity",    icon: "🔍" },
-  { id: "strategizing", label: "Assembling business plan",    icon: "🎯" },
-  { id: "branding",     label: "Generating brand identity",   icon: "✦"  },
-  { id: "designing",    label: "Assembling landing page",     icon: "⚡" },
-  { id: "deploying",    label: "Deploying to Vercel",         icon: "🚀" },
+  { id: "researching", label: "Researching opportunity", icon: "🔍" },
+  { id: "strategizing", label: "Assembling business plan", icon: "🎯" },
+  { id: "branding", label: "Generating brand identity", icon: "✦" },
+  { id: "designing", label: "Assembling landing page", icon: "⚡" },
+  { id: "deploying", label: "Deploying to Vercel", icon: "🚀" },
 ];
 
 const STEP_ORDER: StepId[] = ["researching", "strategizing", "branding", "designing", "deploying"];
@@ -31,38 +31,6 @@ type Phase =
   | { kind: "running"; step: StepId; message: string }
   | { kind: "done"; demoPath: string; startupName: string }
   | { kind: "error"; message: string };
-
-// ── simulation ───────────────────────────────────────────────────────────────
-
-type SimEvent =
-  | { event: "status"; step: StepId; message: string }
-  | { event: "done"; demoPath: string; startupName: string };
-
-function toStartupName(title: string) {
-  return title.split(/\s+/).slice(0, 3).map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-}
-
-async function* simulate(opportunity: Opportunity): AsyncGenerator<SimEvent> {
-  const startupName = toStartupName(opportunity.title);
-  const demoPath = `/demo/${opportunity.id}`;
-
-  const steps: [StepId, string, number][] = [
-    ["researching",  "Setting up build job…",               600],
-    ["researching",  "Fetching opportunity data…",           800],
-    ["strategizing", "Assembling business plan…",           1800],
-    ["branding",     "Generating your brand identity…",     1000],
-    ["designing",    "Assembling cached landing page…",     2000],
-    ["deploying",    "Uploading files to Vercel…",          1000],
-    ["deploying",    "Waiting for deployment…",             1200],
-    ["deploying",    "Almost ready…",                        400],
-  ];
-
-  for (const [step, message, delay] of steps) {
-    yield { event: "status", step, message };
-    await new Promise((r) => setTimeout(r, delay));
-  }
-  yield { event: "done", demoPath, startupName };
-}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -81,14 +49,16 @@ function getStepState(stepId: StepId, phase: Phase): "pending" | "active" | "com
 
 export function BuildPrototypeModal({
   opportunity,
+  sourceType = "opportunity",
   open,
   onClose,
 }: {
   opportunity: Opportunity;
+  sourceType?: "opportunity" | "idea";
   open: boolean;
   onClose: () => void;
 }) {
-  const { session, user, isGuest, guestId, guestEmail, setGuestEmail } = useAuth();
+  const { session, user, isGuest, guestId, guestEmail, setGuestEmail, continueAsGuest } = useAuth();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
@@ -101,34 +71,14 @@ export function BuildPrototypeModal({
     onClose();
   };
 
-  const runSimulation = async () => {
-    try {
-      for await (const evt of simulate(opportunity)) {
-        if (evt.event === "status") {
-          setPhase({ kind: "running", step: evt.step, message: evt.message });
-        } else {
-          setPhase({ kind: "done", demoPath: evt.demoPath, startupName: evt.startupName });
-        }
-      }
-    } catch (err) {
-      setPhase({ kind: "error", message: err instanceof Error ? err.message : "Something went wrong." });
-    }
-  };
-
   const startBuild = async (emailOverride?: string, guestIdOverride?: string | null) => {
     setPhase({ kind: "running", step: "researching", message: "Starting build…" });
 
-    // Try real API; fall back to simulation on any failure
     try {
-      if (!session?.access_token && !isGuest && !emailOverride) {
-        setPhase({ kind: "idle" });
-        setEmailDialogOpen(true);
-        return;
-      }
-
       const email = emailOverride ?? user?.email ?? guestEmail ?? "";
-      const activeGuestId = guestIdOverride ?? guestId;
-      if (!session?.access_token && (!email || !activeGuestId)) {
+      const activeGuestId =
+        guestIdOverride ?? guestId ?? (!session?.access_token ? continueAsGuest() : null);
+      if (!session?.access_token && (!isGuest || !activeGuestId) && !guestIdOverride) {
         setPhase({ kind: "idle" });
         setEmailDialogOpen(true);
         return;
@@ -141,14 +91,17 @@ export function BuildPrototypeModal({
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({
-          opportunity_id: opportunity.id,
+          source_type: sourceType,
+          opportunity_id: sourceType === "opportunity" ? opportunity.id : undefined,
+          source_idea_id: sourceType === "idea" ? opportunity.id : undefined,
           email,
           guest_id: session?.access_token ? undefined : activeGuestId,
         }),
       });
 
       if (!res.ok || !res.body) {
-        await runSimulation();
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        setPhase({ kind: "error", message: data?.error ?? "Prototype build failed." });
         return;
       }
 
@@ -160,7 +113,11 @@ export function BuildPrototypeModal({
 
       while (true) {
         let result: ReadableStreamReadResult<Uint8Array>;
-        try { result = await reader.read(); } catch { break; }
+        try {
+          result = await reader.read();
+        } catch {
+          break;
+        }
         const { done, value } = result;
         if (done) break;
 
@@ -175,7 +132,11 @@ export function BuildPrototypeModal({
             try {
               const data = JSON.parse(line.slice(6)) as Record<string, unknown>;
               if (currentEvent === "status") {
-                setPhase({ kind: "running", step: data.step as StepId, message: data.message as string });
+                setPhase({
+                  kind: "running",
+                  step: data.step as StepId,
+                  message: data.message as string,
+                });
               } else if (currentEvent === "done") {
                 setPhase({
                   kind: "done",
@@ -185,14 +146,15 @@ export function BuildPrototypeModal({
               } else if (currentEvent === "error") {
                 setPhase({ kind: "error", message: data.message as string });
               }
-            } catch { /* malformed line */ }
+            } catch {
+              /* malformed line */
+            }
             currentEvent = "";
           }
         }
       }
     } catch {
-      // Network error or API unavailable — run simulation
-      await runSimulation();
+      setPhase({ kind: "error", message: "Prototype build failed — check your connection." });
     } finally {
       readerRef.current = null;
     }
@@ -207,7 +169,12 @@ export function BuildPrototypeModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) handleClose();
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Build this business</DialogTitle>
@@ -218,7 +185,8 @@ export function BuildPrototypeModal({
         {phase.kind === "idle" && (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              We'll assemble a logo, landing page, and business plan from the cached template — then deploy it live.
+              We'll assemble a logo, landing page, and business plan from the cached template — then
+              deploy it live.
             </p>
             <button
               onClick={handleSubmit}
@@ -240,19 +208,21 @@ export function BuildPrototypeModal({
                   key={step.id}
                   className={cn(
                     "flex items-center gap-3 rounded-xl border p-3 transition-all duration-500",
-                    state === "active"   && "border-primary/50 bg-primary/5",
+                    state === "active" && "border-primary/50 bg-primary/5",
                     state === "complete" && "border-border opacity-60",
-                    state === "pending"  && "border-border opacity-25"
+                    state === "pending" && "border-border opacity-25",
                   )}
                 >
                   <span className="text-base leading-none">{step.icon}</span>
                   <span className="flex-1 text-sm">{step.label}</span>
-                  {state === "active"   && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                  {state === "active" && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
                   {state === "complete" && <CheckCircle className="h-4 w-4 text-primary" />}
                 </div>
               );
             })}
-            <p className="pt-1 text-center text-[11px] italic text-muted-foreground">{phase.message}</p>
+            <p className="pt-1 text-center text-[11px] italic text-muted-foreground">
+              {phase.message}
+            </p>
           </div>
         )}
 
@@ -302,7 +272,12 @@ export function BuildPrototypeModal({
         initialEmail={guestEmail}
         title="Where should we send this prototype?"
         description="Enter an email so this guest prototype can be linked back to you."
+        skipLabel="Skip and build"
         onOpenChange={setEmailDialogOpen}
+        onSkip={() => {
+          const nextGuestId = continueAsGuest();
+          void startBuild(undefined, nextGuestId);
+        }}
         onSubmit={(email) => {
           const nextGuestId = setGuestEmail(email);
           void startBuild(email, nextGuestId);

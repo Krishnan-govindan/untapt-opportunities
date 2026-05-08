@@ -1,6 +1,6 @@
 export type GuestIdentity = {
   guestId: string;
-  email: string;
+  email: string | null;
 };
 
 export function normalizeEmail(email: unknown): string | null {
@@ -17,16 +17,32 @@ export function normalizeGuestId(guestId: unknown): string | null {
   return normalized;
 }
 
-export function guestIdentityFromValues(email: unknown, guestId: unknown): GuestIdentity | null {
-  const normalizedEmail = normalizeEmail(email);
+export function guestIdentityFromValues(
+  email: unknown,
+  guestId: unknown,
+  options: { requireEmail?: boolean } = {},
+): GuestIdentity | null {
   const normalizedGuestId = normalizeGuestId(guestId);
-  if (!normalizedEmail || !normalizedGuestId) return null;
+  if (!normalizedGuestId) return null;
+
+  const rawEmail = typeof email === "string" ? email.trim() : "";
+  const normalizedEmail = rawEmail ? normalizeEmail(rawEmail) : null;
+  if (rawEmail && !normalizedEmail) return null;
+  if (options.requireEmail && !normalizedEmail) return null;
+
   return { email: normalizedEmail, guestId: normalizedGuestId };
 }
 
-export function guestIdentityFromRequest(request: Request): GuestIdentity | null {
+export function guestIdentityFromRequest(
+  request: Request,
+  options: { requireEmail?: boolean } = {},
+): GuestIdentity | null {
   const url = new URL(request.url);
-  return guestIdentityFromValues(url.searchParams.get("email"), url.searchParams.get("guest_id"));
+  return guestIdentityFromValues(
+    url.searchParams.get("email"),
+    url.searchParams.get("guest_id"),
+    options,
+  );
 }
 
 export function jsonResponse(body: unknown, init?: ResponseInit) {

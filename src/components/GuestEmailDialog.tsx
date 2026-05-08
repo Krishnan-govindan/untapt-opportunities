@@ -19,14 +19,18 @@ export function GuestEmailDialog({
   initialEmail,
   title = "Where should we save this?",
   description = "Enter an email so we can link your ideas and prototypes back to you.",
+  skipLabel,
   onSubmit,
+  onSkip,
   onOpenChange,
 }: {
   open: boolean;
   initialEmail?: string | null;
   title?: string;
   description?: string;
+  skipLabel?: string;
   onSubmit: (email: string) => void;
+  onSkip?: () => void;
   onOpenChange: (open: boolean) => void;
 }) {
   const [email, setEmail] = useState(initialEmail ?? "");
@@ -61,6 +65,19 @@ export function GuestEmailDialog({
           <Button type="submit" className="w-full">
             Continue
           </Button>
+          {onSkip && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                onSkip();
+                onOpenChange(false);
+              }}
+            >
+              {skipLabel ?? "Skip for now"}
+            </Button>
+          )}
         </form>
       </DialogContent>
     </Dialog>

@@ -21,14 +21,17 @@ type IdeaBody = {
 const ideaSelect =
   "id, user_id, owner_email, guest_id, owner_type, title, description, category, tags, files, video_url, research_results, created_at, updated_at";
 
-function scopedGuestIdeas(guestId: string, email: string) {
-  return supabaseAdmin
+function scopedGuestIdeas(guestId: string, email: string | null) {
+  const query = supabaseAdmin
     .from("user_ideas")
     .select(ideaSelect)
     .eq("owner_type", "guest")
-    .eq("guest_id", guestId)
-    .eq("owner_email", email)
-    .order("created_at", { ascending: false });
+    .eq("guest_id", guestId);
+
+  if (email) query.eq("owner_email", email);
+  else query.is("owner_email", null);
+
+  return query.order("created_at", { ascending: false });
 }
 
 export const Route = createFileRoute("/api/guest/ideas")({
@@ -36,7 +39,8 @@ export const Route = createFileRoute("/api/guest/ideas")({
     handlers: {
       GET: async ({ request }) => {
         const identity = guestIdentityFromRequest(request);
-        if (!identity) return jsonResponse({ error: "Valid guest_id and email are required" }, { status: 400 });
+        if (!identity)
+          return jsonResponse({ error: "Valid guest_id is required" }, { status: 400 });
 
         const { data, error } = await scopedGuestIdeas(identity.guestId, identity.email);
         if (error) return jsonResponse({ error: error.message }, { status: 500 });
@@ -47,7 +51,7 @@ export const Route = createFileRoute("/api/guest/ideas")({
         const identity = guestIdentityFromValues(body?.owner_email, body?.guest_id);
         const title = body?.title?.trim();
         if (!identity || !title) {
-          return jsonResponse({ error: "Valid guest_id, email, and title are required" }, { status: 400 });
+          return jsonResponse({ error: "Valid guest_id and title are required" }, { status: 400 });
         }
 
         const { data, error } = await supabaseAdmin
@@ -72,7 +76,7 @@ export const Route = createFileRoute("/api/guest/ideas")({
         const body = (await request.json().catch(() => null)) as IdeaBody | null;
         const identity = guestIdentityFromValues(body?.owner_email, body?.guest_id);
         if (!identity || !body?.id) {
-          return jsonResponse({ error: "Valid guest_id, email, and id are required" }, { status: 400 });
+          return jsonResponse({ error: "Valid guest_id and id are required" }, { status: 400 });
         }
 
         const patch: Record<string, unknown> = {};
@@ -82,15 +86,17 @@ export const Route = createFileRoute("/api/guest/ideas")({
         if (typeof body.description === "string") patch.description = body.description.trim();
         if (body.category?.trim()) patch.category = body.category.trim();
 
-        const { data, error } = await supabaseAdmin
+        let query = supabaseAdmin
           .from("user_ideas")
           .update(patch)
           .eq("id", body.id)
           .eq("owner_type", "guest")
-          .eq("guest_id", identity.guestId)
-          .eq("owner_email", identity.email)
-          .select(ideaSelect)
-          .single();
+          .eq("guest_id", identity.guestId);
+
+        if (identity.email) query = query.eq("owner_email", identity.email);
+        else query = query.is("owner_email", null);
+
+        const { data, error } = await query.select(ideaSelect).single();
 
         if (error) return jsonResponse({ error: error.message }, { status: 500 });
         return jsonResponse({ idea: data });
@@ -99,16 +105,20 @@ export const Route = createFileRoute("/api/guest/ideas")({
         const body = (await request.json().catch(() => null)) as IdeaBody | null;
         const identity = guestIdentityFromValues(body?.owner_email, body?.guest_id);
         if (!identity || !body?.id) {
-          return jsonResponse({ error: "Valid guest_id, email, and id are required" }, { status: 400 });
+          return jsonResponse({ error: "Valid guest_id and id are required" }, { status: 400 });
         }
 
-        const { error } = await supabaseAdmin
+        let query = supabaseAdmin
           .from("user_ideas")
           .delete()
           .eq("id", body.id)
           .eq("owner_type", "guest")
-          .eq("guest_id", identity.guestId)
-          .eq("owner_email", identity.email);
+          .eq("guest_id", identity.guestId);
+
+        if (identity.email) query = query.eq("owner_email", identity.email);
+        else query = query.is("owner_email", null);
+
+        const { error } = await query;
 
         if (error) return jsonResponse({ error: error.message }, { status: 500 });
         return jsonResponse({ ok: true });

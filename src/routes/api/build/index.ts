@@ -58,7 +58,9 @@ function buildBusinessStrategy(opp: Record<string, unknown>, startupName: string
     value_prop: String(opp.pain_description ?? opp.pain_summary ?? ""),
     gtm_strategy: [
       `Start with ${icp.split(",")[0] || "the highest-intent customer segment"}.`,
-      whyNow ? `Anchor outreach around the timing trigger: ${whyNow}` : "Use the visible pain as the lead magnet for early conversations.",
+      whyNow
+        ? `Anchor outreach around the timing trigger: ${whyNow}`
+        : "Use the visible pain as the lead magnet for early conversations.",
       ...mvp.slice(0, 2).map((f) => `Ship a narrow workflow around ${f}.`),
     ].slice(0, 4),
     icp_refined: icp,
@@ -107,14 +109,19 @@ function svgToBase64DataUrl(svg: string): string {
 
 // ─── Cached Prototype Template ───────────────────────────────────────────────
 
-function templateData(
-  opp: Record<string, unknown>,
-  startupName: string,
-): Record<string, unknown> {
+function templateData(opp: Record<string, unknown>, startupName: string): Record<string, unknown> {
   const paletteIdx = (startupName.charCodeAt(0) ?? 0) % LOGO_PALETTES.length;
   const mvpFeatures = (opp.mvp_features as string[] | undefined) ?? [];
-  const competitors =
-    (opp.competitors as { name: string; pricing: string }[] | undefined) ?? [];
+  const competitors = (
+    (opp.competitors as
+      | Array<{ name?: string; pricing?: string; pricing_hint?: string }>
+      | undefined) ?? []
+  )
+    .filter((competitor) => competitor.name)
+    .map((competitor) => ({
+      name: String(competitor.name),
+      pricing: String(competitor.pricing ?? competitor.pricing_hint ?? "Unknown"),
+    }));
 
   return {
     startupName,
@@ -422,9 +429,9 @@ function buildVercelFiles(
       private: true,
       scripts: { dev: "next dev", build: "next build", start: "next start" },
       dependencies: {
-        next: "15.1.0",
-        react: "^19.0.0",
-        "react-dom": "^19.0.0",
+        next: "16.2.6",
+        react: "^19.2.0",
+        "react-dom": "^19.2.0",
       },
       devDependencies: {
         "@types/node": "^22",
@@ -701,9 +708,167 @@ async function sendEmail(
 
 // ─── Main Pipeline ────────────────────────────────────────────────────────────
 
+type BuildSourceType = "opportunity" | "idea";
+
+type BuildSource = {
+  sourceType: BuildSourceType;
+  opportunityId: string | null;
+  sourceIdeaId: string | null;
+  data: Record<string, unknown>;
+};
+
+type UserIdeaRow = {
+  id: string;
+  user_id: string | null;
+  owner_email: string | null;
+  guest_id: string | null;
+  owner_type: string;
+  title: string;
+  description: string;
+  category: string;
+  files: unknown;
+  video_url: string | null;
+  research_results: unknown;
+  created_at: string;
+};
+
+function arrayValue(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? (value as Record<string, unknown>[]) : [];
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function ideaToTemplateOpportunity(idea: UserIdeaRow): Record<string, unknown> {
+  const researchResults = arrayValue(idea.research_results);
+  const firstResearch = researchResults[0] ?? {};
+  const files = arrayValue(idea.files);
+  const researchedFeatures = researchResults.flatMap((result) =>
+    stringArrayValue(result.mvp_features).slice(0, 2),
+  );
+  const fallbackFeatures = [
+    "Capture every new idea in one private workspace",
+    "Turn raw notes into a clear validation checklist",
+    "Launch a focused prototype that explains the offer",
+    "Track market signals and customer feedback in one place",
+  ];
+
+  const competitors = researchResults
+    .flatMap((result) => arrayValue(result.competitors))
+    .filter((competitor) => competitor.name)
+    .slice(0, 5)
+    .map((competitor) => ({
+      name: String(competitor.name),
+      pricing: String(competitor.pricing ?? competitor.pricing_hint ?? "Unknown"),
+    }));
+
+  const sourceNotes = [
+    idea.video_url ? `Video: ${idea.video_url}` : "",
+    files.length > 0
+      ? `Attached files: ${files.map((file) => String(file.name ?? "file")).join(", ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    id: idea.id,
+    title: idea.title,
+    pain_summary: idea.description || idea.title,
+    pain_description: [idea.description, sourceNotes].filter(Boolean).join("\n\n") || idea.title,
+    icp: String(firstResearch.icp ?? `Founders and operators validating ${idea.category} ideas`),
+    sources: [
+      idea.video_url,
+      ...researchResults.flatMap((result) => stringArrayValue(result.sources)),
+    ]
+      .filter((source): source is string => Boolean(source))
+      .slice(0, 8),
+    tam_estimate: String(firstResearch.tam_estimate ?? "TBD"),
+    urgency_score:
+      typeof firstResearch.urgency_score === "number" ? firstResearch.urgency_score : 6,
+    competitors,
+    why_now:
+      String(firstResearch.why_now ?? "").trim() ||
+      `This ${idea.category.toLowerCase()} idea is ready for fast market validation and a focused prototype.`,
+    mvp_features:
+      researchedFeatures.length > 0
+        ? [...new Set(researchedFeatures)].slice(0, 6)
+        : fallbackFeatures,
+    is_hot: false,
+    created_at: idea.created_at,
+    category: idea.category,
+    source_type: "idea",
+  };
+}
+
+async function resolveBuildSource({
+  sourceType,
+  opportunityId,
+  sourceIdeaId,
+  userId,
+  ownerType,
+  email,
+  guestId,
+}: {
+  sourceType: BuildSourceType;
+  opportunityId?: string;
+  sourceIdeaId?: string;
+  userId: string | null;
+  ownerType: "auth" | "guest";
+  email: string;
+  guestId: string | null;
+}): Promise<BuildSource> {
+  if (sourceType === "opportunity") {
+    if (!opportunityId) throw new Error("opportunity_id is required");
+
+    const { data: opp, error } = await supabaseAdmin
+      .from("opportunities")
+      .select("*")
+      .eq("id", opportunityId)
+      .maybeSingle();
+
+    if (error || !opp) throw new Error("Opportunity not found");
+
+    return {
+      sourceType,
+      opportunityId,
+      sourceIdeaId: null,
+      data: opp as Record<string, unknown>,
+    };
+  }
+
+  if (!sourceIdeaId) throw new Error("source_idea_id is required");
+
+  let query = supabaseAdmin.from("user_ideas").select("*").eq("id", sourceIdeaId);
+  if (ownerType === "auth") {
+    if (!userId) throw new Error("Sign in again to build this idea");
+    query = query.eq("user_id", userId);
+  } else {
+    if (!guestId) throw new Error("Valid guest id is required");
+    query = query.eq("owner_type", "guest").eq("guest_id", guestId);
+    if (email) query = query.eq("owner_email", email);
+    else query = query.is("owner_email", null);
+  }
+
+  const { data: idea, error } = await query.maybeSingle();
+  if (error || !idea) throw new Error("Idea not found or not accessible");
+
+  return {
+    sourceType,
+    opportunityId: null,
+    sourceIdeaId,
+    data: ideaToTemplateOpportunity(idea as UserIdeaRow),
+  };
+}
+
 async function runPipeline(
   writer: WritableStreamDefaultWriter<Uint8Array>,
-  opportunityId: string,
+  sourceType: BuildSourceType,
+  opportunityId: string | undefined,
+  sourceIdeaId: string | undefined,
   email: string,
   userId: string | null,
   ownerType: "auth" | "guest",
@@ -721,7 +886,24 @@ async function runPipeline(
   let prototypeId: string | undefined;
 
   try {
-    // ── 1. Create prototype row ──────────────────────────────────────────────
+    // ── 1. Resolve source data ───────────────────────────────────────────────
+    send("status", { step: "researching", message: "Fetching source data…" });
+
+    const source = await resolveBuildSource({
+      sourceType,
+      opportunityId,
+      sourceIdeaId,
+      userId,
+      ownerType,
+      email,
+      guestId: guestId ?? null,
+    });
+
+    const opp = source.data;
+    const slug = toSlug(String(opp.title ?? "prototype"));
+    const startupName = toStartupName(slug);
+
+    // ── 2. Create prototype row ──────────────────────────────────────────────
     send("status", { step: "researching", message: "Setting up build job…" });
 
     const { data: proto, error: protoErr } = await supabaseAdmin
@@ -731,8 +913,10 @@ async function runPipeline(
         owner_type: ownerType,
         owner_email: email || null,
         guest_id: guestId ?? null,
-        opportunity_id: opportunityId,
-        name: "Generating…",
+        opportunity_id: source.opportunityId,
+        source_type: source.sourceType,
+        source_idea_id: source.sourceIdeaId,
+        name: startupName,
         email,
         status: "researching",
       })
@@ -742,22 +926,6 @@ async function runPipeline(
     if (protoErr || !proto) throw new Error("Failed to create prototype record");
     prototypeId = proto.id;
     send("job_id", { job_id: prototypeId });
-
-    // ── 2. Fetch opportunity ─────────────────────────────────────────────────
-    send("status", { step: "researching", message: "Fetching opportunity data…" });
-
-    const { data: opp, error: oppErr } = await supabaseAdmin
-      .from("opportunities")
-      .select("*")
-      .eq("id", opportunityId)
-      .maybeSingle();
-
-    if (oppErr || !opp) throw new Error("Opportunity not found");
-
-    const slug = toSlug(opp.title);
-    const startupName = toStartupName(slug);
-
-    await supabaseAdmin.from("prototypes").update({ name: startupName }).eq("id", prototypeId);
 
     // ── 2.5. Assemble business strategy from cached opportunity data ────────
     send("status", { step: "strategizing", message: "Assembling business plan…" });
@@ -771,7 +939,7 @@ async function runPipeline(
         () => {},
       );
 
-    const context = buildBusinessStrategy(opp as Record<string, unknown>, startupName);
+    const context = buildBusinessStrategy(opp, startupName);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     void (supabaseAdmin as any)
@@ -807,7 +975,7 @@ async function runPipeline(
     send("status", { step: "designing", message: "Assembling cached landing page…" });
     await supabaseAdmin.from("prototypes").update({ status: "designing" }).eq("id", prototypeId);
 
-    const pageTSX = buildCachedPageTSX(opp as Record<string, unknown>, startupName);
+    const pageTSX = buildCachedPageTSX(opp, startupName);
 
     // ── 4. Deploy to Vercel ──────────────────────────────────────────────────
     send("status", { step: "deploying", message: "Uploading files to Vercel…" });
@@ -840,9 +1008,7 @@ async function runPipeline(
     send("status", { step: "deploying", message: "Sending your business plan…" });
 
     await Promise.all([
-      email
-        ? sendEmail(email, liveUrl, startupName, opp as Record<string, unknown>, context)
-        : Promise.resolve(),
+      email ? sendEmail(email, liveUrl, startupName, opp, context) : Promise.resolve(),
       supabaseAdmin
         .from("prototypes")
         .update({ status: "deployed", deployed_url: liveUrl })
@@ -855,11 +1021,10 @@ async function runPipeline(
     send("error", { message });
     if (prototypeId) {
       try {
-        await supabaseAdmin
-          .from("prototypes")
-          .update({ status: "failed" })
-          .eq("id", prototypeId);
-      } catch { /* best-effort status update */ }
+        await supabaseAdmin.from("prototypes").update({ status: "failed" }).eq("id", prototypeId);
+      } catch {
+        /* best-effort status update */
+      }
     }
   } finally {
     try {
@@ -876,7 +1041,13 @@ export const Route = createFileRoute("/api/build/")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        let body: { opportunity_id?: string; email?: string; guest_id?: string };
+        let body: {
+          source_type?: BuildSourceType;
+          opportunity_id?: string;
+          source_idea_id?: string;
+          email?: string;
+          guest_id?: string;
+        };
         try {
           body = (await request.json()) as typeof body;
         } catch {
@@ -889,9 +1060,26 @@ export const Route = createFileRoute("/api/build/")({
         const authHeader = request.headers.get("authorization");
         const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
-        const { opportunity_id } = body;
-        if (!opportunity_id) {
+        const sourceType = body.source_type ?? "opportunity";
+        if (sourceType !== "opportunity" && sourceType !== "idea") {
+          return new Response(
+            JSON.stringify({ error: "source_type must be opportunity or idea" }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        if (sourceType === "opportunity" && !body.opportunity_id) {
           return new Response(JSON.stringify({ error: "opportunity_id is required" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        if (sourceType === "idea" && !body.source_idea_id) {
+          return new Response(JSON.stringify({ error: "source_idea_id is required" }), {
             status: 400,
             headers: { "Content-Type": "application/json" },
           });
@@ -919,19 +1107,28 @@ export const Route = createFileRoute("/api/build/")({
         } else {
           const guestIdentity = guestIdentityFromValues(email, body.guest_id);
           if (!guestIdentity) {
-            return new Response(JSON.stringify({ error: "Valid guest email is required" }), {
+            return new Response(JSON.stringify({ error: "Valid guest id is required" }), {
               status: 401,
               headers: { "Content-Type": "application/json" },
             });
           }
-          email = guestIdentity.email;
+          email = guestIdentity.email ?? "";
           guestId = guestIdentity.guestId;
         }
 
         const { writable, readable } = new TransformStream<Uint8Array, Uint8Array>();
         const writer = writable.getWriter();
 
-        runPipeline(writer, opportunity_id, email, userId, ownerType, guestId).catch(async (err: unknown) => {
+        runPipeline(
+          writer,
+          sourceType,
+          body.opportunity_id,
+          body.source_idea_id,
+          email,
+          userId,
+          ownerType,
+          guestId,
+        ).catch(async (err: unknown) => {
           const enc = new TextEncoder();
           const msg = err instanceof Error ? err.message : "Internal error";
           try {

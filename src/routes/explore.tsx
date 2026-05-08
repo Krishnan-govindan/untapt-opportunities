@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import type { Opportunity } from "@/lib/types";
 import { OpportunityCard } from "@/components/OpportunityCard";
 import { useAgent } from "@/lib/agent-context";
+import { useAuth } from "@/lib/auth-context";
+import { GuestEmailDialog } from "@/components/GuestEmailDialog";
 
 export const Route = createFileRoute("/explore")({
   component: Explore,
@@ -34,8 +36,25 @@ type ExploreHistoryEntry = {
   createdAt: string;
 };
 
-const HISTORY_KEY = "untapt-explore-history:v1";
-const MAX_HISTORY = 12;
+const HISTORY_KEY = "untapt-explore-history:v2";
+const EMAIL_PROMPT_KEY = "untapt-research-email-prompted:v1";
+const GUEST_EMAIL_KEY = "untapt-guest-email:v1";
+const MAX_HISTORY = 50;
+
+type PendingAction = { mode: "saved" | "research"; query: string };
+
+type PublicResearchRun = {
+  id: string;
+  created_at: string;
+  mode: "saved" | "research";
+  topic: string;
+  result_count: number;
+  total_scanned: number | null;
+  messages: unknown;
+  message: string | null;
+  empty: boolean;
+  opportunities: unknown;
+};
 
 function createHistoryId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -74,6 +93,23 @@ function formatHistoryDate(value: string) {
   }
 }
 
+function historyFromPublicRun(run: PublicResearchRun): ExploreHistoryEntry | null {
+  if (!Array.isArray(run.opportunities)) return null;
+  return {
+    id: run.id,
+    topic: run.topic,
+    mode: run.mode,
+    opportunities: run.opportunities as Opportunity[],
+    totalScanned: run.total_scanned ?? undefined,
+    messages: Array.isArray(run.messages)
+      ? run.messages.filter((item): item is string => typeof item === "string")
+      : [],
+    message: run.message ?? undefined,
+    empty: run.empty,
+    createdAt: run.created_at,
+  };
+}
+
 function agentOpportunities(opportunities: Opportunity[]) {
   return opportunities.slice(0, 8).map((o) => ({
     id: o.id,
@@ -97,13 +133,36 @@ function Explore() {
   const [history, setHistory] = useState<ExploreHistoryEntry[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const { setOpen, setPageContext } = useAgent();
+  const { user, guestId, guestEmail, continueAsGuest, setGuestEmail } = useAuth();
 
   useEffect(() => {
-    setHistory(readHistory());
-    setHistoryLoaded(true);
+    let cancelled = false;
+
+    async function loadPublicHistory() {
+      try {
+        const res = await fetch("/api/research-history?limit=50");
+        const data = (await res.json().catch(() => ({}))) as {
+          history?: PublicResearchRun[];
+        };
+        if (!res.ok || !Array.isArray(data.history)) throw new Error("History unavailable");
+        if (cancelled) return;
+        setHistory(data.history.map(historyFromPublicRun).filter(Boolean) as ExploreHistoryEntry[]);
+      } catch {
+        if (!cancelled) setHistory(readHistory());
+      } finally {
+        if (!cancelled) setHistoryLoaded(true);
+      }
+    }
+
+    void loadPublicHistory();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -119,6 +178,56 @@ function Explore() {
     if (entry) openHistoryEntry(entry, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyLoaded]);
+
+  const getTrackingGuestId = () => user?.id ?? guestId ?? continueAsGuest() ?? createHistoryId();
+  const getOwnerEmail = () =>
+    user?.email ??
+    guestEmail ??
+    (typeof window !== "undefined" ? window.localStorage.getItem(GUEST_EMAIL_KEY) : null);
+
+  const persistResult = async (localEntry: ExploreHistoryEntry) => {
+    try {
+      const res = await fetch("/api/research-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guest_id: getTrackingGuestId(),
+          owner_email: getOwnerEmail(),
+          mode: localEntry.mode,
+          topic: localEntry.topic,
+          total_scanned: localEntry.totalScanned ?? null,
+          messages: localEntry.messages,
+          message: localEntry.message ?? null,
+          empty: Boolean(localEntry.empty),
+          opportunities: localEntry.opportunities,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { run?: PublicResearchRun };
+      const publicEntry = data.run ? historyFromPublicRun(data.run) : null;
+      if (!res.ok || !publicEntry) throw new Error("Couldn't store research run");
+
+      setHistory((prev) =>
+        [publicEntry, ...prev.filter((item) => item.id !== localEntry.id)]
+          .filter(
+            (entry, index, all) =>
+              all.findIndex(
+                (item) =>
+                  item.topic.trim().toLowerCase() === entry.topic.trim().toLowerCase() &&
+                  item.mode === entry.mode &&
+                  item.opportunities.map((o) => o.id).join("|") ===
+                    entry.opportunities.map((o) => o.id).join("|"),
+              ) === index,
+          )
+          .slice(0, MAX_HISTORY),
+      );
+      setActiveHistoryId((current) => (current === localEntry.id ? publicEntry.id : current));
+      if (typeof window !== "undefined" && window.location.hash === `#research-${localEntry.id}`) {
+        window.history.replaceState(null, "", `#research-${publicEntry.id}`);
+      }
+    } catch {
+      // Keep the local cached run if public persistence is temporarily unavailable.
+    }
+  };
 
   const rememberResult = (
     entry: Omit<ExploreHistoryEntry, "id" | "createdAt">,
@@ -145,7 +254,38 @@ function Explore() {
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", `#research-${next.id}`);
     }
+    void persistResult(next);
     return next;
+  };
+
+  const executeStoredAction = async (action: PendingAction) => {
+    if (action.mode === "saved") await searchSaved(action.query);
+    else await runResearch(action.query);
+  };
+
+  const requestStoredAction = async (action: PendingAction) => {
+    const shouldPrompt =
+      !user?.email &&
+      !guestEmail &&
+      typeof window !== "undefined" &&
+      window.localStorage.getItem(EMAIL_PROMPT_KEY) !== "true";
+
+    if (shouldPrompt) {
+      setPendingAction(action);
+      setEmailDialogOpen(true);
+      return;
+    }
+
+    getTrackingGuestId();
+    await executeStoredAction(action);
+  };
+
+  const completePendingAction = async () => {
+    const action = pendingAction;
+    setPendingAction(null);
+    if (typeof window !== "undefined") window.localStorage.setItem(EMAIL_PROMPT_KEY, "true");
+    getTrackingGuestId();
+    if (action) await executeStoredAction(action);
   };
 
   const openHistoryEntry = (entry: ExploreHistoryEntry, scroll = true) => {
@@ -175,7 +315,7 @@ function Explore() {
     const trimmed = topic.trim();
     if (!trimmed) return;
 
-    await searchSaved(trimmed);
+    await requestStoredAction({ mode: "saved", query: trimmed });
   };
 
   const searchSaved = async (query: string) => {
@@ -463,7 +603,7 @@ function Explore() {
                 Search again
               </button>
               <button
-                onClick={() => runResearch(phase.topic)}
+                onClick={() => requestStoredAction({ mode: "research", query: phase.topic })}
                 disabled={isRunning}
                 className="rounded-md border border-border bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/50 hover:text-primary disabled:opacity-50"
               >
@@ -501,7 +641,7 @@ function Explore() {
               {phase.mode === "saved" && (
                 <div className="mt-4">
                   <button
-                    onClick={() => runResearch(phase.topic)}
+                    onClick={() => requestStoredAction({ mode: "research", query: phase.topic })}
                     className="rounded-md border border-primary/40 bg-primary/10 px-4 py-2 text-xs font-medium text-primary hover:bg-primary/15"
                   >
                     Research web
@@ -551,12 +691,20 @@ function Explore() {
         history={history}
         activeHistoryId={activeHistoryId}
         onOpen={openHistoryEntry}
-        onClear={() => {
-          setHistory([]);
-          setActiveHistoryId(null);
-          if (typeof window !== "undefined") {
-            window.history.replaceState(null, "", window.location.pathname);
-          }
+      />
+      <GuestEmailDialog
+        open={emailDialogOpen}
+        initialEmail={guestEmail}
+        title="Save this research?"
+        description="Add an email if you want us to connect future research projects back to you. You can also skip and continue anonymously."
+        skipLabel="Skip and continue"
+        onOpenChange={setEmailDialogOpen}
+        onSkip={() => {
+          void completePendingAction();
+        }}
+        onSubmit={(email) => {
+          setGuestEmail(email);
+          void completePendingAction();
         }}
       />
     </main>
@@ -567,12 +715,10 @@ function ExploreHistory({
   history,
   activeHistoryId,
   onOpen,
-  onClear,
 }: {
   history: ExploreHistoryEntry[];
   activeHistoryId: string | null;
   onOpen: (entry: ExploreHistoryEntry) => void;
-  onClear: () => void;
 }) {
   const activeEntry = history.find((entry) => entry.id === activeHistoryId) ?? history[0];
 
@@ -587,14 +733,6 @@ function ExploreHistory({
             Saved searches and web research stay here so you can reopen the exact result set.
           </p>
         </div>
-        {history.length > 0 && (
-          <button
-            onClick={onClear}
-            className="text-xs text-muted-foreground underline hover:text-foreground"
-          >
-            Clear history
-          </button>
-        )}
       </div>
 
       {history.length === 0 ? (

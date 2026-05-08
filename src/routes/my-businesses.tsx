@@ -6,7 +6,9 @@ import { requireAuth, useRequireAuth } from "@/lib/require-auth";
 import { GuestEmailDialog } from "@/components/GuestEmailDialog";
 
 export const Route = createFileRoute("/my-businesses")({
-  beforeLoad: async () => { await requireAuth("/my-businesses"); },
+  beforeLoad: async () => {
+    await requireAuth("/my-businesses");
+  },
   component: MyBusinessesPage,
 });
 
@@ -17,7 +19,9 @@ type Prototype = {
   thumbnail_url: string | null;
   deployed_url: string | null;
   created_at: string;
-  opportunity_id: string;
+  opportunity_id: string | null;
+  source_type: "opportunity" | "idea" | string;
+  source_idea_id: string | null;
 };
 
 function formatDate(iso: string) {
@@ -53,7 +57,28 @@ function initials(name: string) {
     .join("");
 }
 
+const ACTIVE_STATUSES = new Set([
+  "researching",
+  "strategizing",
+  "branding",
+  "designing",
+  "deploying",
+]);
+const STALE_BUILD_MS = 30 * 60 * 1000;
+
+function shouldShowPrototype(proto: Prototype) {
+  if (proto.status === "failed") return false;
+  if (proto.deployed_url) return true;
+  if (!ACTIVE_STATUSES.has(proto.status)) return false;
+
+  const createdAt = new Date(proto.created_at).getTime();
+  if (Number.isNaN(createdAt)) return false;
+  return Date.now() - createdAt < STALE_BUILD_MS;
+}
+
 function PrototypeCard({ proto }: { proto: Prototype }) {
+  const canViewFeedDemo = proto.source_type !== "idea" && Boolean(proto.opportunity_id);
+
   return (
     <div className="flex flex-col rounded-2xl border border-border bg-card hover:border-primary/30 transition-colors p-5 gap-4">
       {/* Avatar */}
@@ -74,13 +99,15 @@ function PrototypeCard({ proto }: { proto: Prototype }) {
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2 border-t border-border pt-3">
-        <Link
-          to="/demo/$id"
-          params={{ id: proto.opportunity_id }}
-          className="rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/40 hover:text-primary transition-colors"
-        >
-          View demo
-        </Link>
+        {canViewFeedDemo && proto.opportunity_id && (
+          <Link
+            to="/demo/$id"
+            params={{ id: proto.opportunity_id }}
+            className="rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/40 hover:text-primary transition-colors"
+          >
+            View feed idea
+          </Link>
+        )}
         {proto.deployed_url && (
           <a
             href={proto.deployed_url}
@@ -88,8 +115,13 @@ function PrototypeCard({ proto }: { proto: Prototype }) {
             rel="noopener noreferrer"
             className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/15 transition-colors"
           >
-            View live ↗
+            Open app ↗
           </a>
+        )}
+        {!proto.deployed_url && ACTIVE_STATUSES.has(proto.status) && (
+          <span className="rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-medium text-muted-foreground">
+            Building…
+          </span>
         )}
       </div>
     </div>
@@ -97,8 +129,14 @@ function PrototypeCard({ proto }: { proto: Prototype }) {
 }
 
 function MyBusinessesPage() {
-  const { loading: authLoading, user, isGuest, guestId, guestEmail, setGuestEmail } =
-    useRequireAuth("/my-businesses");
+  const {
+    loading: authLoading,
+    user,
+    isGuest,
+    guestId,
+    guestEmail,
+    setGuestEmail,
+  } = useRequireAuth("/my-businesses");
   const [prototypes, setPrototypes] = useState<Prototype[]>([]);
   const [loading, setLoading] = useState(true);
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
@@ -108,22 +146,26 @@ function MyBusinessesPage() {
     if (user) {
       supabase
         .from("prototypes")
-        .select("id, name, status, thumbnail_url, deployed_url, created_at, opportunity_id")
+        .select(
+          "id, name, status, thumbnail_url, deployed_url, created_at, opportunity_id, source_type, source_idea_id",
+        )
         .order("created_at", { ascending: false })
         .then(({ data, error }) => {
           if (error) toast.error("Couldn't load prototypes");
-          else setPrototypes((data ?? []) as Prototype[]);
+          else setPrototypes(((data ?? []) as Prototype[]).filter(shouldShowPrototype));
           setLoading(false);
         });
       return;
     }
 
-    if (isGuest && guestId && guestEmail) {
-      fetch(`/api/guest/prototypes?${new URLSearchParams({ guest_id: guestId, email: guestEmail })}`)
+    if (isGuest && guestId) {
+      const params = new URLSearchParams({ guest_id: guestId });
+      if (guestEmail) params.set("email", guestEmail);
+      fetch(`/api/guest/prototypes?${params.toString()}`)
         .then((res) => res.json())
         .then((data: { prototypes?: Prototype[]; error?: string }) => {
           if (data.error) toast.error(data.error);
-          setPrototypes(data.prototypes ?? []);
+          setPrototypes((data.prototypes ?? []).filter(shouldShowPrototype));
           setLoading(false);
         })
         .catch(() => {
@@ -133,16 +175,13 @@ function MyBusinessesPage() {
       return;
     }
 
-    if (isGuest) {
-      setLoading(false);
-      setEmailDialogOpen(true);
-    }
+    if (isGuest) setLoading(false);
   }, [authLoading, guestEmail, guestId, isGuest, user]);
 
   if (authLoading || (!user && !isGuest)) {
     return (
       <main className="flex min-h-[calc(100vh-56px)] items-center justify-center px-6">
-        <div className="text-sm text-muted-foreground">Redirecting to sign in...</div>
+        <div className="text-sm text-muted-foreground">Preparing guest workspace...</div>
       </main>
     );
   }
@@ -161,7 +200,7 @@ function MyBusinessesPage() {
             onClick={() => setEmailDialogOpen(true)}
             className="mt-4 rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-2 text-sm font-medium text-orange-300 hover:bg-orange-500/15 transition-colors"
           >
-            {guestEmail ? `Guest: ${guestEmail}` : "Add email to load guest businesses"}
+            {guestEmail ? `Guest: ${guestEmail}` : "Add email to link guest businesses"}
           </button>
         )}
       </div>
@@ -205,8 +244,13 @@ function MyBusinessesPage() {
         open={emailDialogOpen}
         initialEmail={guestEmail}
         title="Find your guest businesses"
-        description="Enter the email you used for guest mode so we can show prototypes linked to it."
+        description="Enter the email you used for guest mode, or skip to show anonymous projects linked to this browser."
+        skipLabel="Skip for now"
         onOpenChange={setEmailDialogOpen}
+        onSkip={() => {
+          setLoading(true);
+          setLoading(false);
+        }}
         onSubmit={(email) => {
           setGuestEmail(email);
           setLoading(true);

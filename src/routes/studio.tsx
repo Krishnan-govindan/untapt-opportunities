@@ -12,7 +12,9 @@ import { BuildPrototypeModal } from "@/components/BuildPrototypeModal";
 import { GuestEmailDialog } from "@/components/GuestEmailDialog";
 
 export const Route = createFileRoute("/studio")({
-  beforeLoad: async () => { await requireAuth("/studio"); },
+  beforeLoad: async () => {
+    await requireAuth("/studio");
+  },
   component: StudioPage,
 });
 
@@ -83,10 +85,10 @@ function NewIdeaForm({
     if (!title.trim()) return;
     setSaving(true);
     await onSubmit({
-        title: title.trim(),
-        description: description.trim(),
-        category,
-        video_url: videoUrl.trim() || null,
+      title: title.trim(),
+      description: description.trim(),
+      category,
+      video_url: videoUrl.trim() || null,
     });
     setSaving(false);
   };
@@ -119,7 +121,9 @@ function NewIdeaForm({
           className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         >
           {IDEA_CATEGORIES.map((c) => (
-            <option key={c} value={c}>{c}</option>
+            <option key={c} value={c}>
+              {c}
+            </option>
           ))}
         </select>
         <input
@@ -214,11 +218,19 @@ function IdeaCard({
     if (isGuest) return;
     await supabase.storage.from("user-files").remove([filePath]);
     const newFiles = idea.files.filter((f) => f.path !== filePath);
-    await supabase.from("user_ideas").update({ files: newFiles as unknown as Json }).eq("id", idea.id);
+    await supabase
+      .from("user_ideas")
+      .update({ files: newFiles as unknown as Json })
+      .eq("id", idea.id);
     onUpdate({ ...idea, files: newFiles });
   };
 
   const handleResearch = async () => {
+    if (isGuest && !guestId) {
+      onNeedEmail();
+      return;
+    }
+
     setResearching(true);
     const q = `${idea.title} ${idea.description}`.slice(0, 200).trim();
     try {
@@ -230,10 +242,6 @@ function IdeaCard({
       }
       const results = data.opportunities ?? [];
       if (isGuest) {
-        if (!ownerEmail || !guestId) {
-          onNeedEmail();
-          return;
-        }
         const updateRes = await fetch("/api/guest/ideas", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -244,7 +252,8 @@ function IdeaCard({
             research_results: results as unknown as Json,
           }),
         });
-        if (!updateRes.ok) throw new Error("Research saved locally, but couldn't update guest idea");
+        if (!updateRes.ok)
+          throw new Error("Research saved locally, but couldn't update guest idea");
       } else {
         await supabase
           .from("user_ideas")
@@ -263,12 +272,20 @@ function IdeaCard({
 
   const handleChatAbout = () => {
     setOpen(true);
+    const researchContext = (idea.research_results ?? []).slice(0, 8) as Opportunity[];
     setPageContext({
       type: "explore",
-      query: idea.title,
+      query: [
+        idea.title,
+        idea.description,
+        `Category: ${idea.category}`,
+        idea.video_url ? `Video: ${idea.video_url}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
       mode: "saved",
-      resultCount: idea.research_results?.length ?? 0,
-      opportunities: (idea.research_results ?? []).slice(0, 8) as Opportunity[],
+      resultCount: researchContext.length,
+      opportunities: researchContext,
     });
   };
 
@@ -318,7 +335,14 @@ function IdeaCard({
               className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
               title="Delete idea"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2" />
               </svg>
             </button>
@@ -341,7 +365,14 @@ function IdeaCard({
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-xs text-primary hover:opacity-80"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
               Watch video
@@ -357,7 +388,14 @@ function IdeaCard({
                 key={f.path}
                 className="flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5 py-1 text-xs text-muted-foreground"
               >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
                   <path d="M13 2v7h7" />
                 </svg>
@@ -433,7 +471,13 @@ function IdeaCard({
             )}
           </button>
           <button
-            onClick={() => setBuildOpen(true)}
+            onClick={() => {
+              if (isGuest && !guestId) {
+                onNeedEmail();
+                return;
+              }
+              setBuildOpen(true);
+            }}
             className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/15 transition-colors"
           >
             Build prototype
@@ -464,6 +508,7 @@ function IdeaCard({
       {buildOpen && (
         <BuildPrototypeModal
           opportunity={ideaToOpportunity(idea)}
+          sourceType="idea"
           open={buildOpen}
           onClose={() => setBuildOpen(false)}
         />
@@ -475,7 +520,14 @@ function IdeaCard({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 function StudioPage() {
-  const { loading: authLoading, user, isGuest, guestId, guestEmail, setGuestEmail } = useRequireAuth("/studio");
+  const {
+    loading: authLoading,
+    user,
+    isGuest,
+    guestId,
+    guestEmail,
+    setGuestEmail,
+  } = useRequireAuth("/studio");
   const { setPageContext } = useAgent();
   const [ideas, setIdeas] = useState<UserIdea[]>([]);
   const [loading, setLoading] = useState(true);
@@ -566,7 +618,7 @@ function StudioPage() {
       category: string;
       video_url: string | null;
     },
-    email: string,
+    email: string | null,
   ) => {
     if (!guestId) return;
     const res = await fetch("/api/guest/ideas", {
@@ -614,7 +666,7 @@ function StudioPage() {
   if (authLoading || (!user && !isGuest)) {
     return (
       <main className="flex min-h-[calc(100vh-56px)] items-center justify-center px-6">
-        <div className="text-sm text-muted-foreground">Redirecting to sign in...</div>
+        <div className="text-sm text-muted-foreground">Preparing guest workspace...</div>
       </main>
     );
   }
@@ -629,7 +681,7 @@ function StudioPage() {
           </h1>
           <p className="mt-3 max-w-2xl text-base text-muted-foreground">
             Capture business ideas, save video links, research the market, and launch your
-            prototype. Guests can start with an email; file uploads need sign-in.
+            prototype. Guests can add an email to link projects, or continue without one.
           </p>
         </div>
         {!creating && (
@@ -643,12 +695,7 @@ function StudioPage() {
       </div>
 
       {/* New idea form */}
-      {creating && (
-        <NewIdeaForm
-          onSubmit={handleSubmitIdea}
-          onCancel={() => setCreating(false)}
-        />
-      )}
+      {creating && <NewIdeaForm onSubmit={handleSubmitIdea} onCancel={() => setCreating(false)} />}
 
       {/* Loading */}
       {loading && (
@@ -699,7 +746,14 @@ function StudioPage() {
         initialEmail={guestEmail}
         title="Save your ideas by email"
         description="No password needed. We'll use this email to keep your guest ideas and prototypes together."
+        skipLabel="Skip and save"
         onOpenChange={setEmailDialogOpen}
+        onSkip={() => {
+          if (pendingDraft) {
+            void saveGuestIdea(pendingDraft, null);
+            setPendingDraft(null);
+          }
+        }}
         onSubmit={(email) => {
           setGuestEmail(email);
           if (pendingDraft) {
@@ -721,7 +775,11 @@ function Spinner() {
       viewBox="0 0 24 24"
     >
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+      />
     </svg>
   );
 }
