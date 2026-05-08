@@ -100,7 +100,7 @@ export const Route = createFileRoute("/api/chat/")({
                 { user_id: sessionId, opportunity_id, role: "user", content: message },
                 { user_id: sessionId, opportunity_id, role: "assistant", content: fullText },
               ])
-              .catch(() => {});
+              .then(undefined, () => {});
           } catch (err: unknown) {
             send("error", { message: err instanceof Error ? err.message : "Chat error" });
           } finally {

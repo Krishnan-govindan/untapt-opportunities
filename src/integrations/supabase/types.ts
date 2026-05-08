@@ -14,6 +14,114 @@ export type Database = {
   }
   public: {
     Tables: {
+      chats: {
+        Row: {
+          id: string
+          opportunity_id: string
+          user_id: string
+          role: string
+          content: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          opportunity_id: string
+          user_id: string
+          role: string
+          content: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          opportunity_id?: string
+          user_id?: string
+          role?: string
+          content?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      prototypes: {
+        Row: {
+          id: string
+          user_id: string
+          opportunity_id: string
+          name: string
+          thumbnail_url: string | null
+          deployed_url: string | null
+          status: string
+          email: string
+          business_context: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          opportunity_id: string
+          name: string
+          thumbnail_url?: string | null
+          deployed_url?: string | null
+          status?: string
+          email: string
+          business_context?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          opportunity_id?: string
+          name?: string
+          thumbnail_url?: string | null
+          deployed_url?: string | null
+          status?: string
+          email?: string
+          business_context?: Json | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      user_ideas: {
+        Row: {
+          id: string
+          user_id: string
+          title: string
+          description: string
+          category: string
+          tags: string[]
+          files: Json
+          video_url: string | null
+          research_results: Json | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          title: string
+          description?: string
+          category?: string
+          tags?: string[]
+          files?: Json
+          video_url?: string | null
+          research_results?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          title?: string
+          description?: string
+          category?: string
+          tags?: string[]
+          files?: Json
+          video_url?: string | null
+          research_results?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       opportunities: {
         Row: {
           competitors: Json

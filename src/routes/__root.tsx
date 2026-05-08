@@ -14,6 +14,7 @@ import appCss from "../styles.css?url";
 import { Header } from "@/components/Header";
 import { AgentSidebar } from "@/components/AgentSidebar";
 import { AgentProvider } from "@/lib/agent-context";
+import { AuthProvider } from "@/lib/auth-context";
 
 function NotFoundComponent() {
   return (
@@ -126,7 +127,8 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
     <QueryClientProvider client={queryClient}>
-      <AgentProvider>
+      <AuthProvider>
+        <AgentProvider>
         <div className="min-h-screen">
           <Header />
           <Outlet />
@@ -143,7 +145,8 @@ function RootComponent() {
           }}
           />
         </div>
-      </AgentProvider>
+        </AgentProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

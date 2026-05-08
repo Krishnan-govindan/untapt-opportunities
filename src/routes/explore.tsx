@@ -3,8 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import type { Opportunity } from "@/lib/types";
 import { OpportunityCard } from "@/components/OpportunityCard";
 import { useAgent } from "@/lib/agent-context";
+import { requireAuth } from "@/lib/require-auth";
 
 export const Route = createFileRoute("/explore")({
+  beforeLoad: async () => { await requireAuth("/explore"); },
   component: Explore,
 });
 

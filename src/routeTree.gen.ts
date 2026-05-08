@@ -9,10 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as StudioRouteImport } from './routes/studio'
+import { Route as MyBusinessesRouteImport } from './routes/my-businesses'
 import { Route as ExploreRouteImport } from './routes/explore'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OpportunityIdRouteImport } from './routes/opportunity.$id'
 import { Route as DemoIdRouteImport } from './routes/demo.$id'
+import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as ApiExploreIndexRouteImport } from './routes/api/explore/index'
 import { Route as ApiChatIndexRouteImport } from './routes/api/chat/index'
 import { Route as ApiBuildIndexRouteImport } from './routes/api/build/index'
@@ -20,9 +24,24 @@ import { Route as ApiAgentIndexRouteImport } from './routes/api/agent/index'
 import { Route as ApiExploreSearchRouteImport } from './routes/api/explore/search'
 import { Route as ApiBuildStatusRouteImport } from './routes/api/build/status'
 
+const StudioRoute = StudioRouteImport.update({
+  id: '/studio',
+  path: '/studio',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MyBusinessesRoute = MyBusinessesRouteImport.update({
+  id: '/my-businesses',
+  path: '/my-businesses',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ExploreRoute = ExploreRouteImport.update({
   id: '/explore',
   path: '/explore',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -39,6 +58,11 @@ const DemoIdRoute = DemoIdRouteImport.update({
   id: '/demo/$id',
   path: '/demo/$id',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/callback',
+  path: '/callback',
+  getParentRoute: () => AuthRoute,
 } as any)
 const ApiExploreIndexRoute = ApiExploreIndexRouteImport.update({
   id: '/api/explore/',
@@ -73,7 +97,11 @@ const ApiBuildStatusRoute = ApiBuildStatusRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRouteWithChildren
   '/explore': typeof ExploreRoute
+  '/my-businesses': typeof MyBusinessesRoute
+  '/studio': typeof StudioRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
   '/api/build/status': typeof ApiBuildStatusRoute
@@ -85,7 +113,11 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRouteWithChildren
   '/explore': typeof ExploreRoute
+  '/my-businesses': typeof MyBusinessesRoute
+  '/studio': typeof StudioRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
   '/api/build/status': typeof ApiBuildStatusRoute
@@ -98,7 +130,11 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/auth': typeof AuthRouteWithChildren
   '/explore': typeof ExploreRoute
+  '/my-businesses': typeof MyBusinessesRoute
+  '/studio': typeof StudioRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/demo/$id': typeof DemoIdRoute
   '/opportunity/$id': typeof OpportunityIdRoute
   '/api/build/status': typeof ApiBuildStatusRoute
@@ -112,7 +148,11 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/auth'
     | '/explore'
+    | '/my-businesses'
+    | '/studio'
+    | '/auth/callback'
     | '/demo/$id'
     | '/opportunity/$id'
     | '/api/build/status'
@@ -124,7 +164,11 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/auth'
     | '/explore'
+    | '/my-businesses'
+    | '/studio'
+    | '/auth/callback'
     | '/demo/$id'
     | '/opportunity/$id'
     | '/api/build/status'
@@ -136,7 +180,11 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/auth'
     | '/explore'
+    | '/my-businesses'
+    | '/studio'
+    | '/auth/callback'
     | '/demo/$id'
     | '/opportunity/$id'
     | '/api/build/status'
@@ -149,7 +197,10 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthRoute: typeof AuthRouteWithChildren
   ExploreRoute: typeof ExploreRoute
+  MyBusinessesRoute: typeof MyBusinessesRoute
+  StudioRoute: typeof StudioRoute
   DemoIdRoute: typeof DemoIdRoute
   OpportunityIdRoute: typeof OpportunityIdRoute
   ApiBuildStatusRoute: typeof ApiBuildStatusRoute
@@ -162,11 +213,32 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/studio': {
+      id: '/studio'
+      path: '/studio'
+      fullPath: '/studio'
+      preLoaderRoute: typeof StudioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/my-businesses': {
+      id: '/my-businesses'
+      path: '/my-businesses'
+      fullPath: '/my-businesses'
+      preLoaderRoute: typeof MyBusinessesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/explore': {
       id: '/explore'
       path: '/explore'
       fullPath: '/explore'
       preLoaderRoute: typeof ExploreRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -189,6 +261,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/demo/$id'
       preLoaderRoute: typeof DemoIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof AuthRoute
     }
     '/api/explore/': {
       id: '/api/explore/'
@@ -235,9 +314,22 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthRouteChildren {
+  AuthCallbackRoute: typeof AuthCallbackRoute
+}
+
+const AuthRouteChildren: AuthRouteChildren = {
+  AuthCallbackRoute: AuthCallbackRoute,
+}
+
+const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthRoute: AuthRouteWithChildren,
   ExploreRoute: ExploreRoute,
+  MyBusinessesRoute: MyBusinessesRoute,
+  StudioRoute: StudioRoute,
   DemoIdRoute: DemoIdRoute,
   OpportunityIdRoute: OpportunityIdRoute,
   ApiBuildStatusRoute: ApiBuildStatusRoute,

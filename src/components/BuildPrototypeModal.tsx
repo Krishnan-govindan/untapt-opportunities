@@ -9,6 +9,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-context";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,7 @@ export function BuildPrototypeModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const { session, user } = useAuth();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const handleClose = () => {
@@ -116,10 +118,18 @@ export function BuildPrototypeModal({
 
     // Try real API; fall back to simulation on any failure
     try {
+      if (!session?.access_token) {
+        setPhase({ kind: "error", message: "Please sign in to build a private prototype." });
+        return;
+      }
+
       const res = await fetch("/api/build", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ opportunity_id: opportunity.id, email: "" }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ opportunity_id: opportunity.id, email: user?.email ?? "" }),
       });
 
       if (!res.ok || !res.body) {

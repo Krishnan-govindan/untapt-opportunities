@@ -560,6 +560,7 @@ async function runPipeline(
   writer: WritableStreamDefaultWriter<Uint8Array>,
   opportunityId: string,
   email: string,
+  userId: string,
 ): Promise<void> {
   const enc = new TextEncoder();
   const send = (event: string, data: object) => {
@@ -579,7 +580,7 @@ async function runPipeline(
     const { data: proto, error: protoErr } = await supabaseAdmin
       .from("prototypes")
       .insert({
-        user_id: crypto.randomUUID(),
+        user_id: userId,
         opportunity_id: opportunityId,
         name: "Generating…",
         email,
@@ -695,7 +696,9 @@ async function runPipeline(
     send("status", { step: "deploying", message: "Sending your business plan…" });
 
     await Promise.all([
-      sendEmail(email, liveUrl, startupName, opp as Record<string, unknown>, context),
+      email
+        ? sendEmail(email, liveUrl, startupName, opp as Record<string, unknown>, context)
+        : Promise.resolve(),
       supabaseAdmin
         .from("prototypes")
         .update({ status: "deployed", deployed_url: liveUrl })
@@ -707,11 +710,12 @@ async function runPipeline(
     const message = err instanceof Error ? err.message : "Unknown error";
     send("error", { message });
     if (prototypeId) {
-      await supabaseAdmin
-        .from("prototypes")
-        .update({ status: "failed" })
-        .eq("id", prototypeId)
-        .catch(() => {});
+      try {
+        await supabaseAdmin
+          .from("prototypes")
+          .update({ status: "failed" })
+          .eq("id", prototypeId);
+      } catch { /* best-effort status update */ }
     }
   } finally {
     try {
@@ -738,9 +742,30 @@ export const Route = createFileRoute("/api/build/")({
           });
         }
 
-        const { opportunity_id, email } = body;
-        if (!opportunity_id || !email) {
-          return new Response(JSON.stringify({ error: "opportunity_id and email are required" }), {
+        const authHeader = request.headers.get("authorization");
+        const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
+        if (!token) {
+          return new Response(JSON.stringify({ error: "Authentication is required" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        const {
+          data: { user },
+          error: userErr,
+        } = await supabaseAdmin.auth.getUser(token);
+        if (userErr || !user) {
+          return new Response(JSON.stringify({ error: "Invalid authentication token" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        const { opportunity_id } = body;
+        const email = body.email?.trim() || user.email || "";
+        if (!opportunity_id) {
+          return new Response(JSON.stringify({ error: "opportunity_id is required" }), {
             status: 400,
             headers: { "Content-Type": "application/json" },
           });
@@ -749,7 +774,7 @@ export const Route = createFileRoute("/api/build/")({
         const { writable, readable } = new TransformStream<Uint8Array, Uint8Array>();
         const writer = writable.getWriter();
 
-        runPipeline(writer, opportunity_id, email).catch(async (err: unknown) => {
+        runPipeline(writer, opportunity_id, email, user.id).catch(async (err: unknown) => {
           const enc = new TextEncoder();
           const msg = err instanceof Error ? err.message : "Internal error";
           try {
