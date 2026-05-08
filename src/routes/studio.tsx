@@ -743,8 +743,10 @@ function StudioPage() {
       return;
     }
 
-    if (isGuest && guestId && guestEmail) {
-      fetch(`/api/guest/ideas?${new URLSearchParams({ guest_id: guestId, email: guestEmail })}`)
+    if (isGuest && guestId) {
+      const params = new URLSearchParams({ guest_id: guestId });
+      if (guestEmail) params.set("email", guestEmail);
+      fetch(`/api/guest/ideas?${params.toString()}`)
         .then((res) => res.json())
         .then((data: { ideas?: UserIdea[]; error?: string }) => {
           if (data.error) toast.error(data.error);
